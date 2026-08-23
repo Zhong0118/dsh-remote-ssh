@@ -23,8 +23,6 @@ export default [
       "local-bridge": "src/routing/local-bridge.ts",
       "shell-transparent": "src/routing/shell.ts",
       "agent-policy": "src/routing/agent-policy.ts",
-      "tui-backend": "src/profiles/tui-backend.ts",
-      tui: "src/profiles/tui.ts",
       web: "src/profiles/web.ts",
     },
     outDir: "lib",

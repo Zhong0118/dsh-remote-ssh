@@ -56,7 +56,7 @@ export function apply(ctx: Context): void {
     for (const agent of [...pending]) bind(agent)
   })
 
-  // Front doors such as dsh-tui create their initial Agent during startup.
+  // Front doors may create their initial Agent during startup.
   // Loader entries mount concurrently, so reconcile any Agent that won the
   // race instead of depending on one event ordering.
   for (const agent of ctx.agents.list()) bind(agent)

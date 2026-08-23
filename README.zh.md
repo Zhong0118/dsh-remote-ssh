@@ -39,36 +39,8 @@ dsh plugin --profile web add dsh-remote-ssh
 dsh web
 ```
 
-如需启用可选的 dsh-tui 适配器，把同一个 bundle 安装到该 profile：
-
-```sh
-dsh plugin --profile dsh-tui add dsh-remote-ssh
-dsh-tui
-```
-
-进入 TUI 后，`/workspace remote`（或 `/workspace connect`）会先显示 SSH 设备列表，
-再浏览并选择远端目录；`/workspace resume` 列出已有工作区。也可以直接打开：
-
-`/connect` 进入另一种模式，也可以直接输入常见的 SSH 连接形式，例如
-`/connect ssh user@host -p 2222`。Agent、Session、工具和 workspace 都由远端
-Harness 持有，本地 TUI 只是它的客户端；使用 `/disconnect` 回到本地 Channel。
-完整远端 Backend 生效期间不会再显示 `/connect`，也不会披露 `/workspace remote`
-这类本地 workspace provider；普通 `/workspace` 操作直接作用于远端 Host。
-后端 provider 在运行时自动发现，不需要通过 patch 调整 `dsh-tui` bundle 行的加载顺序。
-registry 依赖是可选的，所以同一个 bundle 装进只有 Web 的 profile 时也不会等待 TUI service。
-
-目录浏览器中，Enter 选择当前目录；在第一行按 Tab 可以编辑或粘贴远端绝对路径，
-再按 Enter 读取该目录。
-
-```text
-/workspace open ssh://server-id/srv/project
-/workspace open ssh://user@example.com:2222/home/user/project
-```
-
-启动器也接受同一 URI（`dsh-tui ssh://server-id/srv/project`）。首次出现的直连
-目标会写入 Remote SSH 设置。`/workspace open ../other-project` 等相对路径在当前远端
-POSIX 路径空间内解析，`!command` 则通过当前工作区的远端 shell 执行。该适配器
-完全可选：dsh-tui 内没有 SSH 专属协议或界面代码，未安装本包时仍完整支持本地工作。
+本 fork 只面向 Web profile。在 **设置 → Remote SSH** 管理主机和远端工作区，
+然后在 `<服务器> > <目录>` 中新建或打开会话。
 
 从 DeepSeek Harness 源码 checkout 运行时，用 `pnpm dsh` 代替 `dsh`。本地开发插件时：
 
@@ -151,7 +123,7 @@ Web UI 不桥接密码、MFA 和首次 host-key 确认。请先通过 OpenSSH �
 
 ## 兼容性
 
-- DeepSeek Harness `0.1.0-rc.6` package surface；
+- DeepSeek Harness `0.1.0-rc.8` package surface；
 - POSIX/Linux SSH 主机；
 - `@microsoft/agent-host-protocol` 0.7 客户端，并已针对 AHP 0.8 验证 Resource 与 Terminal 子集；
 - 系统 OpenSSH 配置、SSH Agent、`known_hosts` 和 `ProxyJump`。

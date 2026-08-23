@@ -42,14 +42,6 @@
             ? [{ id: 'default', serverId: 'default', remotePath: process.env.DSH_REMOTE_SSH_WORKSPACE, ...(process.env.DSH_REMOTE_SSH_LOCAL_WORKSPACE ? { aliasPath: process.env.DSH_REMOTE_SSH_LOCAL_WORKSPACE } : {}) }]
             : []
 
-    # Optional Remote Host adapter for dsh-tui's public backend registry.
-    # Only the manager is an entry-level dependency: the plugin observes the
-    # optional tuiBackends service internally, so this same bundle also boots
-    # in Web and other UI-neutral profiles where dsh-tui is absent.
-    - id: remote-ssh-tui-backend
-      name: dsh-remote-ssh/tui-backend
-      inject: [remoteSshManager]
-
     - id: remote-ssh-web
       name: dsh-remote-ssh/web
       inject: [remoteSshManager]
@@ -123,13 +115,6 @@
     - id: remote-ssh-agent-policy
       name: dsh-remote-ssh/agent-policy
       inject: [agents, remoteSshManager, systemPrompt, tools]
-
-    # Optional terminal front-door adapter. It stays dormant on Web because
-    # tuiWorkspaces is absent, and registers /workspace targets when dsh-tui
-    # is part of the same profile.
-    - id: remote-ssh-tui
-      name: dsh-remote-ssh/tui
-      inject: [remoteSshManager]
 
 # Replace only capability providers; callers and visible tool names do not
 # change. A remote search therefore reuses tool-fs-search through the routed

@@ -131,14 +131,8 @@ Web adapter 保留原 gateway URL，并为新请求解析当前 tunnel；通用 
 Mux/Host WebSocket 流。连接边界上失败的 unary mutation 不自动重放，避免远端其实
 已执行时产生重复副作用。插件退出会取消正在进行的 SSH bootstrap。
 
-dsh-tui 只提供 UI 中性的 `tuiBackends` registry 和命令分发入口。Remote SSH 在该
-service 存在时注册 Host Channel provider；registry 支持晚注册和卸载，现有 TUI binding
-会在本地 Channel 与远端 Channel 间切换，同时保持交给界面的 Channel 对象身份稳定。
-Remote SSH bundle 的 `tui-backend` 条目本身只强依赖 UI 中性的 manager，并在内部观察
-可选的 `tuiBackends`；因此同一个 bundle 装入 Web profile 时也能完成激活，不会等待 TUI
-专属 service。
-因此 bundle 无需定向修改 `dsh-tui` 行，也没有源码 loader hook；未安装 Remote SSH 时，
-registry 直接委托原本的本地 Channel。
+本 fork 只维护 Web profile。完整 Backend 通过 Web 设置页的 **Open Backend in Web**
+入口接入，不包含 dsh-tui Channel / workspace provider。
 
 ## Agent Host 版本策略
 
@@ -148,7 +142,7 @@ registry 直接委托原本的本地 Channel。
 
 ## 本地 picker 的 UTF-16 兼容层
 
-上游 `@deepseek-ai/dsh-host-directory-picker-native@0.1.0-rc.6` 的 Windows worker 只检查 UTF-16LE 码元低字节是否为零，会截断含“开”(U+5F00) 等字符的路径（discussion #396）。bundle 因此禁用 stock picker occupant，并注册 `directory-picker-native-fixed`：Windows 使用 STA FolderBrowserDialog，完整路径以 UTF-16LE Base64 跨进程返回；macOS/Linux 继续调用上游 `pickNativeDirectory`。这层只改变 host capability，不改变组合后的 LOCAL/Remote workspace 流。
+上游 `@deepseek-ai/dsh-host-directory-picker-native` 的 Windows worker 曾只检查 UTF-16LE 码元低字节是否为零，会截断含“开”(U+5F00) 等字符的路径（discussion #396）。bundle 因此禁用 stock picker occupant，并使用本插件的应用内浏览器。这层只改变 host capability，不改变组合后的 LOCAL/Remote workspace 流。rc.8 的 `tool-fs-search` 会 spawn 本机 `@vscode/ripgrep` 二进制；远端 workspace 必须把它改写成 PATH 上的 `rg`，否则搜索会把本机路径送到 SSH 主机。
 
 ## 失败域
 

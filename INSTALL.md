@@ -84,8 +84,8 @@ dsh --profile web --dump-config
 Require these facts:
 
 - `remote-ssh-manager`, `remote-ssh-web`, `remote-ssh-fs-router`, `remote-ssh-subprocess-router`, and `remote-ssh-agent-policy` load from `dsh-remote-ssh`;
-- the stock root `subprocess`, `fs-sandbox`, `bash-sandbox`, `pwsh-sandbox`, `tool-bash`, `tool-pwsh`, and native `directory-picker` rows are disabled by the bundle;
-- `tool-fs-search` remains enabled;
+- the stock root `subprocess`, `fs-sandbox`, `bash-sandbox`, `pwsh-sandbox`, `tool-bash`, `tool-pwsh`, `spill-local`, and native `directory-picker` rows are disabled by the bundle;
+- host-level `tool-fs-search` is disabled so agent-preset search loads after the remote path hook;
 - `sandbox-policy.config.mode` is `danger-full-access` and `approval.config.policy` is `never`.
 
 Stop and report the exact diagnostic if composition fails. Do not edit unrelated rows to make the bundle load.

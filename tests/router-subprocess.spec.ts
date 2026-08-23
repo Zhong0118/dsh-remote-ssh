@@ -133,6 +133,18 @@ describe('AHP transparent subprocess', () => {
     expect(command).not.toContain('C:\\tools')
   })
 
+  it('rewrites the rc.8 packaged ripgrep binary onto remote PATH rg', () => {
+    const command = buildRemoteProcessCommand(
+      ['/Users/me/node_modules/@vscode/ripgrep/bin/rg', '--files'],
+      undefined,
+      '/tmp/in',
+      '/tmp/out',
+      '/tmp/err',
+    )
+    expect(command).toContain("'rg' '--files'")
+    expect(command).not.toContain('@vscode/ripgrep')
+  })
+
   it('uses the persistent AHP host and preserves separate collected outputs', async () => {
     const { ctx, getSshFallbacks } = await setup()
     try {

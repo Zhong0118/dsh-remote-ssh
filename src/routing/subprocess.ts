@@ -513,8 +513,17 @@ async function delay(ms: number): Promise<void> {
 }
 
 function remoteExecutable(executable: string): string {
+  if (isPackagedRipgrep(executable)) return 'rg'
   if (!/^(?:[A-Za-z]:[\\/]|\\\\)/.test(executable)) return executable
   return win32.basename(executable).replace(/\.exe$/i, '')
+}
+
+/** rc.8 search tools spawn a host-local `@vscode/ripgrep` binary; remote worlds must use PATH `rg`. */
+function isPackagedRipgrep(executable: string): boolean {
+  const normalized = executable.replaceAll('\\', '/')
+  return /(?:^|[\\/])(?:rg(?:\.exe)?|node-v[\w.-]+-rg)$/i.test(normalized)
+    || /@vscode\/ripgrep(?:\/|$)/i.test(normalized)
+    || /(?:^|[\\/])ripgrep[\\/]bin[\\/]rg(?:\.exe)?$/i.test(normalized)
 }
 
 export default TransparentSubprocessRuntime

@@ -35,7 +35,12 @@ export async function apply(ctx: ClientContext): Promise<void> {
   installRemoteOpenPath(ctx)
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'remote-ssh', order: 16, label: () => t('nav'), inject: () => ({ t }),
+    name: 'settings.section',
+    id: 'remote-ssh',
+    order: 16,
+    label: () => t('nav'),
+    locale: namespace,
+    inject: () => ({ t }),
   }, RemoteSshSettings))
 
   const injected = (): RemoteWorkspaceFlowInjected => ({
@@ -53,12 +58,23 @@ export async function apply(ctx: ClientContext): Promise<void> {
   })
   ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
     ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
-      yield ctx.slots.register({ name: 'conversation.hero.workspace.directoryFlow', inject: injected }, RemoteWorkspaceFlow)
-      yield ctx.slots.register({ name: 'sidebar.workspaces.directoryFlow', inject: injected }, RemoteWorkspaceFlow)
+      yield ctx.slots.register({
+        name: 'conversation.hero.workspace.directoryFlow',
+        locale: namespace,
+        inject: injected,
+      }, RemoteWorkspaceFlow)
+      yield ctx.slots.register({
+        name: 'sidebar.workspaces.directoryFlow',
+        locale: namespace,
+        inject: injected,
+      }, RemoteWorkspaceFlow)
     }))
 
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-    name: 'settings.plugin.item', id: 'remote-ssh', order: 30, inject: () => ({ t }),
+    name: 'settings.plugin.item',
+    key: 'remote-ssh',
+    locale: namespace,
+    inject: () => ({ t }),
   }, RemoteSshPluginCard))
 }
 

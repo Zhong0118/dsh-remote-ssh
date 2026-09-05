@@ -1,4 +1,4 @@
-import { i as RemoteDshHostConnectionConfig, r as RemoteDshHostConnection } from "./connection-CoC0PijV.js";
+import { i as RemoteDshHostConnectionConfig, r as RemoteDshHostConnection } from "./connection-70uCyD4H.js";
 //#region src/backend/web.d.ts
 declare const DEFAULT_DSH_BACKEND_PORT = 0;
 interface RemoteWebProxyConfig extends RemoteDshHostConnectionConfig {

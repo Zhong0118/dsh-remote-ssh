@@ -1,6 +1,8 @@
 /** Browser entry: locale registration, transparent openPath routing, and slots. */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -24,10 +26,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export const name = 'dsh-remote-ssh-client'
-export const inject = ['slots', 'workspaces', 'sessions', 'locale']
+export const inject = ['slots', 'uiWorkspace', 'sessions', 'locale']
 
 /** Register the localized settings, workspace flow, and transparent file opener. */
-export async function apply(ctx: ClientContext): Promise<void> {
+export async function apply(ctx: Context): Promise<void> {
   const namespace = 'settings.remote-ssh'
   ctx.effect(() => ctx.locale.register(namespace, { zh, en }), 'dsh-remote-ssh: client copy')
   if (await isRemoteBackendWindow()) return
@@ -46,7 +48,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
   const injected = (): RemoteWorkspaceFlowInjected => ({
     t,
     listLocal: async (path?: string): Promise<RemoteDirectoryListing> => {
-      const listing = await ctx.workspaces.listDirectory(path)
+      const listing = await ctx.uiWorkspace.listDirectory(path)
       const parent = listing.crumbs.length > 1 ? listing.crumbs[listing.crumbs.length - 2]?.path : undefined
       return {
         path: listing.path,

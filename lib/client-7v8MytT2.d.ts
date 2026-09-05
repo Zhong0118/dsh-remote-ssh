@@ -1,6 +1,4 @@
 import { a as DshHostProtocolDescription } from "./tunnel-CbyzHBpC.js";
-import { AbstractApiClient, IApiClient } from "@deepseek-ai/dsh-host-apiproxy/client";
-import { ApiProxy, HostFrame, MuxFrame, RpcRequest } from "@deepseek-ai/dsh-host-apiproxy/api";
 //#region src/backend/client.d.ts
 interface DshHostEndpoint {
   readonly origin: string;
@@ -8,6 +6,10 @@ interface DshHostEndpoint {
   webSocketUrl(path: string): string;
   /** Present on reconnecting endpoints; resolves after a physical tunnel exists. */
   ready?(signal?: AbortSignal): Promise<unknown>;
+}
+interface HostStreamEnvelope<T = unknown> {
+  rpcId: string;
+  payload: T;
 }
 interface HostExtensionResult<T = unknown> {
   type: 'server-response';
@@ -30,16 +32,18 @@ interface DownloadedSessionLog {
 }
 /**
  * The same client works in a terminal, daemon, test runner, or another UI.
- * Core domains use Harness' typed ApiClient; extension RPC uses invoke().
+ * Core domains use HTTP invoke(); Host event streams use WebSocket.
  */
-declare class RemoteDshHostClient extends AbstractApiClient {
+declare class RemoteDshHostClient {
   private readonly endpoint;
-  readonly api: IApiClient;
-  constructor(endpoint: DshHostEndpoint, timeoutMs?: number);
-  protected resolveBase(): string;
-  protected doFetch(input: URL, init?: RequestInit): Promise<Response>;
-  protected openMux(_payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>;
-  protected openHost(_payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>>;
+  private readonly timeoutMs?;
+  readonly events: {
+    host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => AsyncGenerator<HostStreamEnvelope<unknown>, any, any>;
+    mux: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => AsyncGenerator<HostStreamEnvelope<unknown>, any, any>;
+  };
+  constructor(endpoint: DshHostEndpoint, timeoutMs?: number | undefined);
+  private resolveBase;
+  private doFetch;
   invoke<T = unknown>(namespace: string, method: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<HostExtensionResult<T>>;
   /** Discover the execution authority and optional Host capabilities. */
   describeProtocol(signal?: AbortSignal): Promise<DshHostProtocolDescription>;
@@ -56,4 +60,4 @@ declare class RemoteDshHostRpcError extends Error {
   constructor(code: string, message: string, details: unknown);
 }
 //#endregion
-export { RemoteDshHostRpcError as a, RemoteDshHostClient as i, DshHostEndpoint as n, HostExtensionResult as r, DownloadedSessionLog as t };
+export { RemoteDshHostClient as a, HostStreamEnvelope as i, DshHostEndpoint as n, RemoteDshHostRpcError as o, HostExtensionResult as r, DownloadedSessionLog as t };

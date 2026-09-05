@@ -7,7 +7,6 @@ import { posix } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { ShellExecutor } from '@deepseek-ai/dsh-shell'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
@@ -129,7 +128,7 @@ export interface RemoteDirectoryListing {
   entries: RemoteDirectoryEntry[]
 }
 
-const SETTINGS_NAMESPACE = settingsNamespace('remote-ssh')
+const SETTINGS_NAMESPACE = 'remote-ssh'
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
 const serverSchema: z<RemoteSshServer> = z.object({

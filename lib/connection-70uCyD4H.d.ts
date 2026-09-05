@@ -1,5 +1,5 @@
 import { a as DshHostProtocolDescription, s as RemoteDshHostTunnelConfig } from "./tunnel-CbyzHBpC.js";
-import { n as DshHostEndpoint } from "./client-BRvjWg_X.js";
+import { n as DshHostEndpoint } from "./client-7v8MytT2.js";
 //#region src/backend/connection.d.ts
 interface DshHostTransport extends DshHostEndpoint {
   readonly alive: boolean;

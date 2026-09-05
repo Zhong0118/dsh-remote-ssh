@@ -1,19 +1,6 @@
 /** UI-neutral client for the dsh-host HTTP/WebSocket protocol. */
 
 import { randomUUID } from 'node:crypto'
-import {
-  AbstractApiClient,
-  type IApiClient,
-} from '@deepseek-ai/dsh-host-apiproxy/client'
-import type {
-  ApiProxy,
-  HostFrame,
-  MuxFrame,
-  RpcRequest,
-  ServerRequest,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
-import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
-import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { parseProtocolDescription, type DshHostProtocolDescription } from './tunnel.js'
 
 export interface DshHostEndpoint {
@@ -24,12 +11,15 @@ export interface DshHostEndpoint {
   ready?(signal?: AbortSignal): Promise<unknown>
 }
 
+export interface HostStreamEnvelope<T = unknown> {
+  rpcId: string
+  payload: T
+}
+
 type SocketItem<F> =
-  | { kind: 'frame'; envelope: RpcRequest<F> }
+  | { kind: 'frame'; envelope: HostStreamEnvelope<F> }
   | { kind: 'error'; error: Error }
   | { kind: 'end' }
-
-interface Parser<F> { parse(value: unknown): F }
 
 export interface HostExtensionResult<T = unknown> {
   type: 'server-response'
@@ -47,41 +37,41 @@ export interface DownloadedSessionLog {
 
 /**
  * The same client works in a terminal, daemon, test runner, or another UI.
- * Core domains use Harness' typed ApiClient; extension RPC uses invoke().
+ * Core domains use HTTP invoke(); Host event streams use WebSocket.
  */
-export class RemoteDshHostClient extends AbstractApiClient {
-  readonly api: IApiClient = this
-
-  constructor(private readonly endpoint: DshHostEndpoint, timeoutMs?: number) {
-    super(timeoutMs)
+export class RemoteDshHostClient {
+  readonly events = {
+    host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) =>
+      this.readWebSocket('/api/events.host', signal, onOpen),
+    mux: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) =>
+      this.readWebSocket('/api/events.mux', signal, onOpen),
   }
 
-  protected override resolveBase(): string {
+  constructor(private readonly endpoint: DshHostEndpoint, private readonly timeoutMs?: number) {}
+
+  private resolveBase(): string {
     return this.endpoint.origin
   }
 
-  protected async doFetch(input: URL, init: RequestInit = {}): Promise<Response> {
+  private async doFetch(input: URL, init: RequestInit = {}): Promise<Response> {
     await this.endpoint.ready?.(init.signal ?? undefined)
     const headers = new Headers(init.headers)
     for (const [name, value] of Object.entries(this.endpoint.requestHeaders())) headers.set(name, value)
     const target = new URL(`${input.pathname}${input.search}`, this.endpoint.origin)
-    return globalThis.fetch(target, { ...init, headers })
-  }
-
-  protected override openMux(
-    _payload: Parameters<ApiProxy['events']['mux']>[0]['payload'],
-    signal: AbortSignal,
-    onOpen?: () => void,
-  ): AsyncIterable<RpcRequest<MuxFrame>> {
-    return this.readWebSocket('/api/events.mux', signal, muxFrameSchema, onOpen)
-  }
-
-  protected override openHost(
-    _payload: Parameters<ApiProxy['events']['host']>[0]['payload'],
-    signal: AbortSignal,
-    onOpen?: () => void,
-  ): AsyncIterable<RpcRequest<HostFrame>> {
-    return this.readWebSocket('/api/events.host', signal, hostFrameSchema, onOpen)
+    const timeout = this.timeoutMs
+    if (timeout === undefined || init.signal?.aborted) {
+      return globalThis.fetch(target, { ...init, headers })
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => { controller.abort(new Error('dsh-host request timeout')) }, timeout)
+    const onAbort = (): void => { controller.abort(init.signal?.reason) }
+    init.signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      return await globalThis.fetch(target, { ...init, headers, signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+      init.signal?.removeEventListener('abort', onAbort)
+    }
   }
 
   async invoke<T = unknown>(
@@ -149,17 +139,16 @@ export class RemoteDshHostClient extends AbstractApiClient {
     return response.result.value as T
   }
 
-  private async *readWebSocket<F extends MuxFrame | HostFrame>(
+  private async *readWebSocket(
     path: string,
     signal: AbortSignal,
-    frameSchema: Parser<F>,
     onOpen?: () => void,
-  ): AsyncGenerator<RpcRequest<F>> {
+  ): AsyncGenerator<HostStreamEnvelope> {
     for (;;) {
       signal.throwIfAborted()
       await this.endpoint.ready?.(signal)
       try {
-        yield* this.readWebSocketOnce(path, signal, frameSchema, onOpen)
+        yield* this.readWebSocketOnce(path, signal, onOpen)
       } catch (error) {
         if (signal.aborted || this.endpoint.ready === undefined) throw error
       }
@@ -168,16 +157,15 @@ export class RemoteDshHostClient extends AbstractApiClient {
     }
   }
 
-  private async *readWebSocketOnce<F extends MuxFrame | HostFrame>(
+  private async *readWebSocketOnce(
     path: string,
     signal: AbortSignal,
-    frameSchema: Parser<F>,
     onOpen?: () => void,
-  ): AsyncGenerator<RpcRequest<F>> {
+  ): AsyncGenerator<HostStreamEnvelope> {
     const socket = new WebSocket(this.endpoint.webSocketUrl(path))
-    const inbox: SocketItem<F>[] = []
+    const inbox: SocketItem<unknown>[] = []
     let wake: (() => void) | undefined
-    const enqueue = (item: SocketItem<F>): void => {
+    const enqueue = (item: SocketItem<unknown>): void => {
       inbox.push(item)
       wake?.()
       wake = undefined
@@ -186,10 +174,11 @@ export class RemoteDshHostClient extends AbstractApiClient {
     const handleMessage = (event: MessageEvent): void => {
       try {
         if (typeof event.data !== 'string') throw new Error('binary WebSocket frame')
-        const full = serverRequestSchema.parse(JSON.parse(event.data)) as ServerRequest
-        const frame = frameSchema.parse(full.payload)
-        this.onEnvelope(full)
-        enqueue({ kind: 'frame', envelope: { rpcId: full.rpcId, payload: frame } })
+        const full = JSON.parse(event.data) as { type?: string; rpcId?: unknown; payload?: unknown }
+        if (full.type !== 'server-request' || typeof full.rpcId !== 'string') {
+          throw new Error('invalid Host stream envelope')
+        }
+        enqueue({ kind: 'frame', envelope: { rpcId: full.rpcId, payload: full.payload } })
       } catch (error) {
         console.error(`[dsh-host] dropping malformed WebSocket frame on ${path}:`, error)
       }
@@ -208,7 +197,7 @@ export class RemoteDshHostClient extends AbstractApiClient {
     try {
       for (;;) {
         while (inbox.length > 0) {
-          const item = inbox.shift() as SocketItem<F>
+          const item = inbox.shift() as SocketItem<unknown>
           if (item.kind === 'end') return
           if (item.kind === 'error') throw item.error
           yield item.envelope

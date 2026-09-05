@@ -1,4 +1,4 @@
-import { i as RemoteDshHostClient } from "./client-BRvjWg_X.js";
+import { a as RemoteDshHostClient } from "./client-7v8MytT2.js";
 //#region src/backend/control.d.ts
 type HostControlOperation = 'shell' | 'doctor' | 'mcp' | 'init' | 'btw' | 'commands' | 'session.mode' | 'session.delete' | 'provider.setup';
 type HostControlAvailability = {

@@ -1,7 +1,7 @@
 import { r as DshHostProgress } from "./tunnel-CbyzHBpC.js";
-import { i as RemoteDshHostClient } from "./client-BRvjWg_X.js";
-import { r as RemoteDshHostConnection } from "./connection-CoC0PijV.js";
-import { i as RemoteDshWebProxy } from "./web-DUb0MMgz.js";
+import { a as RemoteDshHostClient } from "./client-7v8MytT2.js";
+import { r as RemoteDshHostConnection } from "./connection-70uCyD4H.js";
+import { i as RemoteDshWebProxy } from "./web-Dt0Rv9WN.js";
 import { i as WorkspacePathMapper, r as RemoteSshRuntime } from "./runtime-BlvhzgVk.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";

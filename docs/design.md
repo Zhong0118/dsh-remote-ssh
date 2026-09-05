@@ -128,7 +128,8 @@ payload hash 相同则复用现有 generation；hash 变化才 `--replace`。安
 `RemoteDshHostConnection` 是稳定逻辑连接，`RemoteDshHostTunnel` 只表示一次 SSH。
 Tunnel 退出会触发共享的、带抖动指数退避重连；并发消费者等待同一个 attempt。
 Web adapter 保留原 gateway URL，并为新请求解析当前 tunnel；通用 Client 会重新打开
-Mux/Host WebSocket 流。连接边界上失败的 unary mutation 不自动重放，避免远端其实
+Host/Mux WebSocket 流。0.1.2 起本机 Web 使用 Typert Remote，不再依赖
+`dsh-host-apiproxy`。连接边界上失败的 unary mutation 不自动重放，避免远端其实
 已执行时产生重复副作用。插件退出会取消正在进行的 SSH bootstrap。
 
 本 fork 只维护 Web profile。完整 Backend 通过 Web 设置页的 **Open Backend in Web**

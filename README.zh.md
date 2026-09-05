@@ -123,7 +123,7 @@ Web UI 不桥接密码、MFA 和首次 host-key 确认。请先通过 OpenSSH �
 
 ## 兼容性
 
-- DeepSeek Harness `0.1.0-rc.8` package surface；
+- DeepSeek Harness `0.1.2-rc.1` package surface；
 - POSIX/Linux SSH 主机；
 - `@microsoft/agent-host-protocol` 0.7 客户端，并已针对 AHP 0.8 验证 Resource 与 Terminal 子集；
 - 系统 OpenSSH 配置、SSH Agent、`known_hosts` 和 `ProxyJump`。

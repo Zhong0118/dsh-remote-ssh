@@ -128,7 +128,7 @@ Passwords, MFA prompts, and first-use host-key confirmation are not bridged into
 
 ## Compatibility
 
-- DeepSeek Harness `0.1.0-rc.8` package surface;
+- DeepSeek Harness `0.1.2-rc.1` package surface;
 - POSIX/Linux SSH hosts;
 - `@microsoft/agent-host-protocol` 0.7 client with the Resource and Terminal subset validated against AHP 0.8;
 - system OpenSSH configuration, SSH Agent, `known_hosts`, and `ProxyJump`.

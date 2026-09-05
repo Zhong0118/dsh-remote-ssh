@@ -117,7 +117,7 @@ describe('UI-neutral Host client', () => {
       value: { payload: { type: 'stream/error', error: { message: 'finished' } } },
     })
     abort.abort()
-    await stream.return?.()
+    await stream.return?.(undefined)
   })
 
   it('reopens event streams after the physical tunnel disconnects', async () => {
@@ -160,7 +160,7 @@ describe('UI-neutral Host client', () => {
     await expect(stream.next()).resolves.toMatchObject({ value: { payload: { error: { message: 'cycle-2' } } } })
     expect(connections).toBe(2)
     abort.abort()
-    await stream.return?.()
+    await stream.return?.(undefined)
   })
 })
 

@@ -1,4 +1,5 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import { OPEN_FILE_PATH, request, STATE_PATH } from './api.ts'
 import type { CatalogState } from './api.ts'
 import { resolveRemoteOpenWorkspace } from './open-route.ts'
@@ -9,27 +10,28 @@ interface RemoteOpenResponse {
 }
 
 /** Transparently route chat/tool file links through the owning remote Workspace. */
-export function installRemoteOpenPath(ctx: ClientContext): void {
-  const workspaces = ctx.workspaces
-  const previous = workspaces.openPath
-  const routed = async (path: string): Promise<void> => {
+export function installRemoteOpenPath(ctx: Context): void {
+  const session = ctx.remote.session
+  const previous = session.openWorkspacePath.bind(session)
+  const routed: typeof session.openWorkspacePath = async (input, signal) => {
+    const path = input.path
     const state = await request<CatalogState>(STATE_PATH)
     const sessions = ctx.sessions.list.getSnapshot()
     const current = sessions.current
     const cwd = current === undefined ? undefined : sessions.byId[current]?.cwd
     const workspace = resolveRemoteOpenWorkspace(state.workspaces, path, cwd)
-    if (workspace === undefined) return previous.call(workspaces, path)
+    if (workspace === undefined) return previous(input, signal)
 
     const result = await request<RemoteOpenResponse>(OPEN_FILE_PATH, 'POST', {
       workspaceId: workspace.id,
       path,
     })
-    if (result.kind === 'editor') return
+    if (result.kind === 'editor') return { ok: true, value: { opened: true } }
     if (result.localPath === undefined) throw new Error('remote download did not return a local path')
-    await previous.call(workspaces, result.localPath)
+    return previous({ path: result.localPath }, signal)
   }
-  workspaces.openPath = routed
+  session.openWorkspacePath = routed
   ctx.effect(() => () => {
-    if (workspaces.openPath === routed) workspaces.openPath = previous
+    if (session.openWorkspacePath === routed) session.openWorkspacePath = previous
   }, 'dsh-remote-ssh: openPath router')
 }

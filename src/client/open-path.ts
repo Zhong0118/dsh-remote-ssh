@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/remote'
 import { OPEN_FILE_PATH, request, STATE_PATH } from './api.ts'
 import type { CatalogState } from './api.ts'
 import { resolveRemoteOpenWorkspace } from './open-route.ts'

@@ -49,13 +49,13 @@ Stop and report the exact launcher failure if it does not run.
 For the default Web profile:
 
 ```sh
-dsh plugin --profile web add dsh-remote-ssh
+dsh plugin --profile web add github:Zhong0118/dsh-remote-ssh#web-dsh-rc8
 ```
 
 From a Harness source checkout:
 
 ```sh
-pnpm dsh plugin --profile web add dsh-remote-ssh
+pnpm dsh plugin --profile web add github:Zhong0118/dsh-remote-ssh#web-dsh-rc8
 ```
 
 If the user explicitly supplied a local checkout, require all of these files before installation:
@@ -177,25 +177,6 @@ Create or open a disposable session in the new remote workspace. Verify with ord
 - a remote file link opens at the same POSIX path in the configured Remote SSH editor, or as a local snapshot when download-only mode is selected.
 
 Do not create or modify files outside the user-approved test workspace.
-
-### Optional full Backend mode
-
-This is separate from the AHP workspace flow. Use it only when the user wants
-the AI runtime and all Harness state to live on the SSH host.
-
-1. Build or install the matching `dsh-host` bundle beside this connector.
-2. In **Settings → Remote SSH**, select **Open Backend in Web** beside the host.
-   The connector must upload and install or upgrade the Host through that same
-   SSH process; do not preinstall it manually for this verification.
-3. Require the Web client to load remote sessions and keep receiving
-   WebSocket events.
-4. Close the Web client and reconnect. Require the same Backend identity and
-   existing sessions to remain.
-
-The connector uses one SSH process for package negotiation, Host startup/reuse,
-and all HTTP/WebSocket forwarding. Do not replace it with separate probe,
-upload, token-read, and tunnel SSH commands; rate-limited servers depend on the
-single-connection contract.
 
 ### 9. Report completion
 

@@ -7,12 +7,6 @@ export const CONFIG_HOST_PATH = '/plugins/dsh-remote-ssh/ssh-config/host'
 export const SETTINGS_PATH = '/plugins/dsh-remote-ssh/settings'
 export const DIRECTORY_PATH = '/plugins/dsh-remote-ssh/directory'
 export const OPEN_FILE_PATH = '/plugins/dsh-remote-ssh/open-file'
-export const BACKEND_CONNECT_PATH = '/plugins/dsh-remote-ssh/backend/connect'
-
-export type BackendConnectEvent =
-  | { type: 'progress'; stage: string }
-  | { type: 'ready'; url: string; localPort: number; remotePort: number }
-  | { type: 'error'; error: string }
 
 export type OpenFileMode = 'auto' | 'vscode' | 'cursor' | 'windsurf' | 'vscodium' | 'custom' | 'download'
 
@@ -85,34 +79,4 @@ export async function request<T = unknown>(path: string, method = 'GET', body?: 
     throw new Error(message)
   }
   return value as T
-}
-
-/** Read newline-delimited progress from a long-running local plugin route. */
-export async function* requestStream<T>(path: string, body: unknown): AsyncGenerator<T> {
-  const response = await fetch(path, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { accept: 'application/x-ndjson', 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`)
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      buffer += decoder.decode(value, { stream: !done })
-      let boundary: number
-      while ((boundary = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, boundary).trim()
-        buffer = buffer.slice(boundary + 1)
-        if (line !== '') yield JSON.parse(line) as T
-      }
-      if (done) break
-    }
-    if (buffer.trim() !== '') yield JSON.parse(buffer) as T
-  } finally {
-    await reader.cancel().catch(() => undefined)
-  }
 }

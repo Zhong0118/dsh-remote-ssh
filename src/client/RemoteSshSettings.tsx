@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import {
-  BACKEND_CONNECT_PATH, CONFIG_HOST_PATH, DIRECTORY_PATH, emptyCatalog, PROBE_PATH, request, requestStream, STATE_PATH,
+  CONFIG_HOST_PATH, DIRECTORY_PATH, emptyCatalog, PROBE_PATH, request, STATE_PATH,
   WORKSPACE_PATH, WORKSPACE_REMOVE_PATH,
 } from './api.ts'
-import type { BackendConnectEvent, CatalogState, RemoteDirectoryListing } from './api.ts'
+import type { CatalogState, RemoteDirectoryListing } from './api.ts'
 import { button, card, dim, input, page, primary, row, singleLineInput } from './styles.ts'
 import { requireTranslate } from './types.ts'
-import type { LocalizedProps, Translate } from './types.ts'
+import type { LocalizedProps } from './types.ts'
 import { WorkspaceDirectoryPicker } from './WorkspaceDirectoryPicker.tsx'
-import { backendProgressLocaleKey } from '../backend/progress.ts'
 
 /** Full Remote SSH settings page. */
 export function RemoteSshSettings({ t: optionalT }: LocalizedProps): ReactElement {
@@ -22,7 +21,6 @@ export function RemoteSshSettings({ t: optionalT }: LocalizedProps): ReactElemen
   const [hostCommand, setHostCommand] = useState('')
   const [configPath, setConfigPath] = useState('')
   const [message, setMessage] = useState('')
-  const [backendStage, setBackendStage] = useState<string>()
 
   const refresh = useCallback(async () => {
     const next = await request<CatalogState>(STATE_PATH)
@@ -51,48 +49,13 @@ export function RemoteSshSettings({ t: optionalT }: LocalizedProps): ReactElemen
       ? t('probeSuccess', { hostname: result.hostname ?? id, commands })
       : t('probeFailure', { error: result.error ?? t('unknownError') }))
   }
-  const openBackend = async (id: string): Promise<void> => {
-    const webClient = window.open('about:blank', '_blank')
-    if (webClient === null) throw new Error(t('popupBlocked'))
-    webClient.opener = null
-    const initial = t('backendConnecting')
-    setBackendStage('connecting')
-    setMessage(initial)
-    renderBackendProgress(webClient, initial)
-    try {
-      for await (const event of requestStream<BackendConnectEvent>(BACKEND_CONNECT_PATH, { id })) {
-        if (event.type === 'error') throw new Error(event.error)
-        if (event.type === 'progress') {
-          const label = backendProgressLabel(t, event.stage)
-          setBackendStage(event.stage)
-          setMessage(label)
-          renderBackendProgress(webClient, label)
-          continue
-        }
-        webClient.location.replace(event.url)
-        setMessage(t('backendOpened'))
-        return
-      }
-      throw new Error('Backend connection ended before readiness')
-    } catch (error) {
-      webClient.close()
-      throw error
-    } finally {
-      setBackendStage(undefined)
-    }
-  }
 
   return <section style={page}>
     <div>
       <h2 style={{ margin: 0, fontSize: 20 }}>{t('title')}</h2>
       <p style={{ ...dim, marginTop: 6 }}>{t('summary', { servers: state.discoveredServerCount, workspaces: state.workspaceCount })}</p>
     </div>
-    {backendStage !== undefined
-      ? <div role="status" style={{ display: 'grid', gap: 6 }}>
-        <progress aria-label={message} style={{ width: '100%' }} />
-        <span style={dim}>{message}</span>
-      </div>
-      : message ? <p role="status" style={dim}>{message}</p> : null}
+    {message ? <p role="status" style={dim}>{message}</p> : null}
 
     <div style={card}>
       <strong>{t('servers')}</strong>
@@ -103,7 +66,6 @@ export function RemoteSshSettings({ t: optionalT }: LocalizedProps): ReactElemen
           <small style={{ display: 'block', color: 'var(--dsw-alias-label-secondary)' }}>{server.configPath ?? t('savedServer')}</small>
         </span>
         <button style={button} onClick={() => { void probe(server.id) }}>{t('test')}</button>
-        <button style={button} aria-label={`${t('openBackend')} · ${server.label}`} onClick={() => { void openBackend(server.id).catch(error => { setMessage(String(error)) }) }}>{t('openBackend')}</button>
       </div>)}
       {state.servers.length === 0 ? <p style={dim}>{t('noHosts')}</p> : null}
       <div style={row}>
@@ -153,22 +115,4 @@ export function RemoteSshSettings({ t: optionalT }: LocalizedProps): ReactElemen
       <p style={dim}>{t('tombstoneHelp')}</p>
     </div>
   </section>
-}
-
-function backendProgressLabel(t: Translate, stage: string): string {
-  return t(backendProgressLocaleKey(stage))
-}
-
-function renderBackendProgress(target: Window, label: string): void {
-  const document = target.document
-  document.title = label
-  const main = document.createElement('main')
-  main.style.cssText = 'max-width:560px;margin:15vh auto;padding:24px;font:14px system-ui,sans-serif'
-  const progress = document.createElement('progress')
-  progress.style.width = '100%'
-  progress.setAttribute('aria-label', label)
-  const text = document.createElement('p')
-  text.textContent = label
-  main.append(progress, text)
-  document.body.replaceChildren(main)
 }

@@ -119,21 +119,7 @@ Remote `bash` 保留 Harness 官方工具接口。每个前台调用通过 host 
 
 OpenSSH 仅用于 host runtime 的 bootstrap 与 tunnel。POSIX 本机可用短 ControlPath、`ControlMaster=auto` 与 `ControlPersist=60` 合并启动阶段的 SSH 会话；Windows 自带 OpenSSH 和 Git OpenSSH 在实测中会 reset multiplex session，因此 Windows 禁用 ControlMaster。两种平台进入 AHP ready 状态后，普通 fs、shell、搜索、subprocess 和 PTY 都走 host 长连接，不存在逐命令握手。
 
-## 完整 Backend 单例
-
-完整 Backend 使用远端固定实例键 `dsh-remote-ssh`，而不是为每次连接启动进程。`dsh-host` 将当前 generation、PID、随机 loopback 端口和 token 文件发布到远端 per-user 注册表。连接过程先在同一 SSH 上完成 payload hash 协商，再用 OpenSSH `-D` 建立动态 SOCKS；客户端从注册表取得实际端口后，才在本机建立 TCP 入口。SSH 断开只销毁入口，不停止 Host。
-
-payload hash 相同则复用现有 generation；hash 变化才 `--replace`。安装锁把并发 attach/升级串行化，因此正常状态下每个远端 OS 用户只有一个 Remote SSH Host，固定远端端口也不再是身份或生命周期依据。
-
-`RemoteDshHostConnection` 是稳定逻辑连接，`RemoteDshHostTunnel` 只表示一次 SSH。
-Tunnel 退出会触发共享的、带抖动指数退避重连；并发消费者等待同一个 attempt。
-Web adapter 保留原 gateway URL，并为新请求解析当前 tunnel；通用 Client 会重新打开
-Host/Mux WebSocket 流。0.1.2 起本机 Web 使用 Typert Remote，不再依赖
-`dsh-host-apiproxy`。连接边界上失败的 unary mutation 不自动重放，避免远端其实
-已执行时产生重复副作用。插件退出会取消正在进行的 SSH bootstrap。
-
-本 fork 只维护 Web profile。完整 Backend 通过 Web 设置页的 **Open Backend in Web**
-入口接入，不包含 dsh-tui Channel / workspace provider。
+本 fork 只维护 Web 上的透明远端工作区：AI 留在本机，工具经 SSH/AHP 打到远端。不包含把完整 Harness 装到 SSH 主机上的 Backend 模式。
 
 ## Agent Host 版本策略
 
@@ -157,7 +143,7 @@ Host/Mux WebSocket 流。0.1.2 起本机 Web 使用 Typert Remote，不再依赖
 
 ## 非目标与后续
 
-- 不实现第二套远端工具；完整 Backend 通过通用 `dsh-host` 协议承载 Harness；
+- 不实现第二套远端工具；也不把完整 Harness 装到 SSH 主机上；
 - 不实现经典 Remote Agent 私有 wire protocol；
 - 不声称本地 sandbox 能约束远端内核；
 - 当前不支持 Windows SSH 远端；

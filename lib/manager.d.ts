@@ -1,7 +1,3 @@
-import { r as DshHostProgress } from "./tunnel-CbyzHBpC.js";
-import { a as RemoteDshHostClient } from "./client-7v8MytT2.js";
-import { r as RemoteDshHostConnection } from "./connection-70uCyD4H.js";
-import { i as RemoteDshWebProxy } from "./web-Dt0Rv9WN.js";
 import { i as WorkspacePathMapper, r as RemoteSshRuntime } from "./runtime-BlvhzgVk.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
@@ -16,11 +12,6 @@ interface RemoteSshServer {
   sshArgs?: string[];
   remoteCodeCommand?: string;
   sshExecutable?: string;
-  /** Optional fixed override; zero lets the singleton choose a free port. */
-  backendPort?: number;
-}
-interface BackendConnectionProgress extends DshHostProgress {
-  error?: string;
 }
 /** Durable projection from one local alias directory to one remote directory. */
 interface RemoteSshWorkspace {
@@ -112,10 +103,6 @@ declare class RemoteSshManager extends Service {
   private readonly contexts;
   private readonly shellContexts;
   private readonly hosts;
-  private readonly backendTunnels;
-  private readonly webProxies;
-  private readonly backendProgress;
-  private readonly backendProgressListeners;
   private readonly sessionWorlds;
   private workspaceRegistry;
   private refreshTail;
@@ -174,15 +161,6 @@ declare class RemoteSshManager extends Service {
   workspaceContext(route: RemoteWorkspaceRoute): Promise<RemoteWorkspaceContext>;
   /** Resolve the SSH executable/options shared by all channels for this host. */
   sshTransport(route: RemoteWorkspaceRoute): RemoteSshTransport;
-  /** Open the UI-neutral Host protocol over one persistent SSH forward. */
-  connectBackend(server: RemoteSshServer): Promise<RemoteDshHostConnection>;
-  /** Observe one Host installation/attachment without requiring the Host to exist yet. */
-  watchBackendProgress(server: RemoteSshServer, listener: (progress: BackendConnectionProgress) => void): () => void;
-  private publishBackendProgress;
-  /** Open a typed, UI-neutral client on the shared Host tunnel. */
-  connectBackendClient(server: RemoteSshServer): Promise<RemoteDshHostClient>;
-  /** Serve the local Web assets while proxying the unchanged Host protocol. */
-  connectWebBackend(server: RemoteSshServer, localUiPort: number): Promise<RemoteDshWebProxy>;
   /** AHP-backed shell view sharing the host runtime but retaining workspace path mapping. */
   workspaceShell(route: RemoteWorkspaceRoute, dialect: 'bash' | 'pwsh'): Promise<ShellExecutor>;
   private queueRefresh;
@@ -201,4 +179,4 @@ declare class RemoteSshManager extends Service {
   private validate;
 }
 //#endregion
-export { BackendConnectionProgress, Config, ExecutionRoute, LocalWorkspaceRoute, RemoteDirectoryEntry, RemoteDirectoryListing, RemoteOpenFileMode, RemoteSshManager, RemoteSshManager as default, RemoteSshServer, RemoteSshTransport, RemoteSshWorkspace, RemoteWorkspaceContext, RemoteWorkspaceRoute };
+export { Config, ExecutionRoute, LocalWorkspaceRoute, RemoteDirectoryEntry, RemoteDirectoryListing, RemoteOpenFileMode, RemoteSshManager, RemoteSshManager as default, RemoteSshServer, RemoteSshTransport, RemoteSshWorkspace, RemoteWorkspaceContext, RemoteWorkspaceRoute };

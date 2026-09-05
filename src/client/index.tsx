@@ -16,7 +16,6 @@ import { RemoteSshSettings } from './RemoteSshSettings.tsx'
 import { RemoteWorkspaceFlow } from './RemoteWorkspaceFlow.tsx'
 import type { RemoteWorkspaceFlowInjected } from './RemoteWorkspaceFlow.tsx'
 import { installRemoteOpenPath } from './open-path.ts'
-import { REMOTE_BACKEND_CONTEXT_PATH, type RemoteBackendContext } from '../backend-context.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -29,10 +28,9 @@ export const name = 'dsh-remote-ssh-client'
 export const inject = ['slots', 'uiWorkspace', 'sessions', 'locale']
 
 /** Register the localized settings, workspace flow, and transparent file opener. */
-export async function apply(ctx: Context): Promise<void> {
+export function apply(ctx: Context): void {
   const namespace = 'settings.remote-ssh'
   ctx.effect(() => ctx.locale.register(namespace, { zh, en }), 'dsh-remote-ssh: client copy')
-  if (await isRemoteBackendWindow()) return
   const t = ctx.locale.bind(namespace) as RemoteWorkspaceFlowInjected['t']
   installRemoteOpenPath(ctx)
 
@@ -54,7 +52,7 @@ export async function apply(ctx: Context): Promise<void> {
         path: listing.path,
         home: listing.home,
         ...(parent === undefined ? {} : { parent }),
-        entries: listing.entries.map(entry => ({ name: entry.name, path: entry.path })),
+        entries: listing.entries.map((entry: { name: string; path: string }) => ({ name: entry.name, path: entry.path })),
       }
     },
   })
@@ -78,22 +76,4 @@ export async function apply(ctx: Context): Promise<void> {
     locale: namespace,
     inject: () => ({ t }),
   }, RemoteSshPluginCard))
-}
-
-/** Detect the gateway before registering any local-only Remote SSH chrome. */
-export async function isRemoteBackendWindow(
-  fetcher: typeof fetch = globalThis.fetch,
-): Promise<boolean> {
-  try {
-    const response = await fetcher(REMOTE_BACKEND_CONTEXT_PATH, {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { accept: 'application/json' },
-    })
-    if (!response.ok) return false
-    const value = await response.json() as Partial<RemoteBackendContext>
-    return value.attached === true && value.transport === 'ssh'
-  } catch {
-    return false
-  }
 }

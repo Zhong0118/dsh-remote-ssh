@@ -4,13 +4,7 @@ English | [中文](README.zh.md)
 
 Use SSH hosts as transparent workspaces in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
-Remote SSH has two compatible modes. A remote workspace keeps the AI runtime
-local and transparently routes its tools through AHP. A Host tunnel attaches
-any protocol client to a complete persistent Harness running on the SSH host
-through [dsh-host](https://github.com/Yan-Zero/dsh-host). **Open Backend in
-Web** is the browser entry for that same tunnel.
-
-Choose `LOCAL > project` and ordinary file, search, shell, and background-task tools run locally. Choose `<Server> > project` and those same tools run on that SSH host. There is no second set of `remote_*` tools, and a remote failure never falls back to the local machine.
+The AI runtime stays on your local machine. Choose `LOCAL > project` and ordinary file, search, shell, and background-task tools run locally. Choose `<Server> > project` and those same tools run on that SSH host through AHP. There is no second set of `remote_*` tools, and a remote failure never falls back to the local machine.
 
 ## Features
 
@@ -25,8 +19,6 @@ Choose `LOCAL > project` and ordinary file, search, shell, and background-task t
 - opens remote file links in an installed VS Code-compatible editor through its Remote SSH extension, with a local downloaded snapshot as fallback;
 - reuses one persistent SSH/AHP host connection while each Bash call opens its own terminal channel, like a new VS Code terminal tab;
 - shares one host-scoped SSH/AHP connection across workspaces on the same server;
-- opens a UI-neutral remote Backend over one persistent SSH connection carrying startup, authentication, HTTP, and WebSocket forwarding;
-- exports the forwarded Host endpoint and a typed Node API client independently of the optional Web reverse proxy;
 - preserves readable Workspace and Session history after a remote mapping is removed, while rejecting new tool calls from the old session.
 
 Remote workspaces currently support POSIX/Linux hosts. Windows SSH hosts are not yet supported.
@@ -36,12 +28,12 @@ Remote workspaces currently support POSIX/Linux hosts. Windows SSH hosts are not
 Install the published bundle into the Web profile:
 
 ```sh
-dsh plugin --profile web add dsh-remote-ssh
+dsh plugin --profile web add github:Zhong0118/dsh-remote-ssh#web-dsh-rc8
 dsh web
 ```
 
-This fork targets the Web profile only. Manage SSH hosts and remote workspaces
-from **Settings → Remote SSH**, then start a session in `<Server> > <folder>`.
+This fork targets the Web profile only: local AI, remote files/shell over SSH.
+Manage hosts from **Settings → Remote SSH**, then start a session in `<Server> > <folder>`.
 
 From a DeepSeek Harness source checkout, use `pnpm dsh` in place of `dsh`. For local plugin development:
 
@@ -71,27 +63,6 @@ The remote host needs:
 - `bash`, `base64`, and `mkfifo` for shell and subprocess execution;
 - `rg` for glob and grep tools;
 - a VS Code Agent Host supplied by the official VS Code CLI or an existing VS Code Server installation.
-
-The full Backend mode does not use VS Code Server or AHP. The connector uploads its matching `dsh-host`
-bundle through the same SSH connection and installs or upgrades a private,
-versioned runtime under `~/.dsh-host`. One `dsh-remote-ssh` Host instance is
-shared per remote OS user. Reconnecting discovers the registered PID and
-random loopback port, then reaches it through the same OpenSSH dynamic SOCKS
-channel; only a changed bundle replaces the instance. Concurrent updates are
-serialized by a remote install lock. All clients use the same forwarded Host
-protocol. Selecting **Open Backend in Web** adds a
-local same-origin proxy for the browser assets; closing it or its SSH tunnel
-does not stop the Backend.
-
-The logical Backend connection survives physical SSH failures. It rebuilds
-the dynamic tunnel with jittered exponential backoff, keeps the Web gateway
-URL stable, and reopens Host event streams. A unary mutation interrupted at
-the transport boundary is not replayed automatically, because its remote
-completion cannot be determined safely; later calls wait for reconnection.
-
-The first Backend installation additionally needs `curl`, `sha256sum`, `tar`
-with xz support, and network access to the Node.js and npm registries. It does
-not modify the system package manager.
 
 The plugin checks `code` on PATH, its private `~/.dsh-remote-ssh/cli/bin/code` location, and compatible VS Code Server installations already cached on the host. It does not install remote packages silently.
 

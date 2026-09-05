@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-ssh",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Transparent local and Remote SSH workspaces for DeepSeek Harness",
   "publishConfig": {
     "access": "public",
@@ -32,11 +32,6 @@
     "./shell": { "types": "./lib/shell.d.ts", "default": "./lib/shell.js" },
     "./search": { "types": "./lib/search.d.ts", "default": "./lib/search.js" },
     "./manager": { "types": "./lib/manager.d.ts", "default": "./lib/manager.js" },
-    "./backend/web": { "types": "./lib/backend.d.ts", "default": "./lib/backend.js" },
-    "./backend/client": { "types": "./lib/backend-client.d.ts", "default": "./lib/backend-client.js" },
-    "./backend/control": { "types": "./lib/backend-control.d.ts", "default": "./lib/backend-control.js" },
-    "./backend/connection": { "types": "./lib/backend-connection.d.ts", "default": "./lib/backend-connection.js" },
-    "./backend/tunnel": { "types": "./lib/backend-tunnel.d.ts", "default": "./lib/backend-tunnel.js" },
     "./router-fs": { "types": "./lib/router-fs.d.ts", "default": "./lib/router-fs.js" },
     "./router-subprocess": { "types": "./lib/router-subprocess.d.ts", "default": "./lib/router-subprocess.js" },
     "./spill": { "types": "./lib/spill.d.ts", "default": "./lib/spill.js" },
@@ -66,7 +61,6 @@
     }
   },
   "peerDependencies": {
-    "dsh-host": "^0.1.0",
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-agent": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-api-session-controller": "^0.1.2-rc.1",
@@ -98,14 +92,10 @@
     "@deepseek-ai/dsh-tools": "^0.1.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
-  "peerDependenciesMeta": {
-    "dsh-host": { "optional": true }
-  },
   "dependencies": {
     "@microsoft/agent-host-protocol": "0.7.0"
   },
   "devDependencies": {
-    "dsh-host": "^0.1.0",
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/cordis-plugin-include": "1.0.6",
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",

@@ -18,7 +18,6 @@ export const REMOTE_SSH_CONFIG_HOST_PATH = '/plugins/dsh-remote-ssh/ssh-config/h
 export const REMOTE_SSH_SETTINGS_PATH = '/plugins/dsh-remote-ssh/settings'
 export const REMOTE_SSH_DIRECTORY_PATH = '/plugins/dsh-remote-ssh/directory'
 export const REMOTE_SSH_OPEN_FILE_PATH = '/plugins/dsh-remote-ssh/open-file'
-export const REMOTE_SSH_BACKEND_CONNECT_PATH = '/plugins/dsh-remote-ssh/backend/connect'
 
 export const name = 'dsh-remote-ssh-web'
 export const inject = ['remoteSshManager']
@@ -86,31 +85,6 @@ function registerWebRoutes(ctx: Context): void {
       const body = await readJson(req)
       const server = await resolveAvailableServer(ctx.remoteSshManager, requiredString(body, 'id'))
       json(res, 200, await probeServer(server.sshTarget, server.sshArgs ?? []))
-    }),
-    route(ctx, REMOTE_SSH_BACKEND_CONNECT_PATH, 'POST', async (req, res) => {
-      const body = await readJson(req)
-      const server = await resolveAvailableServer(ctx.remoteSshManager, requiredString(body, 'id'))
-      res.writeHead(200, {
-        'content-type': 'application/x-ndjson; charset=utf-8',
-        'cache-control': 'no-store',
-        'x-content-type-options': 'nosniff',
-      })
-      res.flushHeaders()
-      const send = (value: unknown): void => {
-        if (!res.destroyed && !res.writableEnded) res.write(`${JSON.stringify(value)}\n`)
-      }
-      const unwatch = ctx.remoteSshManager.watchBackendProgress(server, progress => {
-        send({ type: 'progress', stage: progress.stage })
-      })
-      try {
-        const backend = await ctx.remoteSshManager.connectWebBackend(server, ctx.webServer.port)
-        send({ type: 'ready', url: backend.url, localPort: backend.localPort, remotePort: backend.remotePort })
-      } catch (error) {
-        send({ type: 'error', error: safeMessage(error) })
-      } finally {
-        unwatch()
-        if (!res.destroyed && !res.writableEnded) res.end()
-      }
     }),
     route(ctx, REMOTE_SSH_CONFIG_HOST_PATH, 'POST', async (req, res) => {
       const body = await readJson(req)

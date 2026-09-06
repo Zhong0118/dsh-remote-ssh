@@ -63,6 +63,7 @@ describe('bundle overlay', () => {
     expect(byId.get('remote-ssh-search')).toMatchObject({
       inject: ['remoteSshManager'],
     })
+    expect(byId.get('remote-ssh-search')?.inject).not.toContain('loader')
     const localWorld = byId.get('remote-ssh-local-world')
     expect(localWorld).toMatchObject({ name: 'cordis:group' })
     const localChildren = Array.isArray(localWorld?.config) ? localWorld.config as EntryOptions[] : []

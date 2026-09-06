@@ -62,6 +62,7 @@ export default [
         "react-dom",
         "react-dom/client",
         "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-api-gateway/client",
         "@deepseek-ai/dsh-api-session-controller/client",
         "@deepseek-ai/dsh-api-session-controller/remote",
         "@deepseek-ai/dsh-client-ui-renderer/client",

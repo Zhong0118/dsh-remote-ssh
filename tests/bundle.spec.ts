@@ -83,4 +83,10 @@ describe('bundle overlay', () => {
     expect(new Set(shellChildren.map(row => row.id)).size).toBe(shellChildren.length)
     expect(rows.some(row => String(row.name).includes('remote-tool'))).toBe(false)
   })
+
+  it('declares Client Remote inject so ctx.remote.session is legal', () => {
+    const source = readFileSync(join(import.meta.dirname, '..', 'src', 'client', 'index.tsx'), 'utf8')
+    expect(source).toMatch(/inject = \[[^\]]*'remote'[^\]]*\]/)
+    expect(source).toContain("'remote.session'")
+  })
 })

@@ -241,6 +241,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: 0.1.2-rc.1
         version: 0.1.2-rc.1(6f833cf90b9dd3f0d529840b1aebfb48)
+      '@deepseek-ai/dsh-api-gateway':
+        specifier: 0.1.2-rc.1
+        version: 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-api-session-controller':
         specifier: 0.1.2-rc.1
         version: 0.1.2-rc.1(d4b5c2099376e29f681d8d9c13349ea3)

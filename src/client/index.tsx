@@ -1,6 +1,7 @@
 /** Browser entry: locale registration, transparent openPath routing, and slots. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-gateway/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -25,7 +26,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export const name = 'dsh-remote-ssh-client'
-export const inject = ['slots', 'uiWorkspace', 'sessions', 'locale']
+export const inject = ['slots', 'uiWorkspace', 'sessions', 'locale', 'remote', 'remote.session']
 
 /** Register the localized settings, workspace flow, and transparent file opener. */
 export function apply(ctx: Context): void {

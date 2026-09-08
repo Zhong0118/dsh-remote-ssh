@@ -10,7 +10,7 @@ import { RpcError } from '@microsoft/agent-host-protocol/client'
  * against a real Agent Host. Once the SDK publishes that protocol, the Set
  * below de-duplicates it automatically.
  */
-export const VALIDATED_FORWARD_PROTOCOL_VERSIONS = ['0.8.0'] as const
+export const VALIDATED_FORWARD_PROTOCOL_VERSIONS = ['0.9.0'] as const
 
 /** Single source of truth for every initialize handshake and diagnostic. */
 export const DSH_AHP_PROTOCOL_VERSIONS = Object.freeze([

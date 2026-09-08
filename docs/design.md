@@ -123,7 +123,7 @@ OpenSSH 仅用于 host runtime 的 bootstrap 与 tunnel。POSIX 本机可用短 
 
 ## Agent Host 版本策略
 
-`@microsoft/agent-host-protocol` 的正式支持版本和经真实集成验证的 forward protocol 只在 `src/ahp-compat.ts` 合并。运行时不根据“最新版”猜测兼容性，而以 `initialize` 握手为准。默认 bootstrap 顺序为 PATH `code` / 私有 CLI、随后是远端缓存的所有 VS Code Server `code-server`（按新到旧）；协议不匹配会清理本次 tunnel/host 并继续下一个候选。
+`@microsoft/agent-host-protocol` 的正式支持版本和经真实集成验证的 forward protocol 只在 `src/transport/ahp-compat.ts` 合并。当前客户端优先协商 AHP 0.9，并回退 SDK 仍声明的 0.8–0.5.1。运行时不根据“最新版”猜测兼容性，而以 `initialize` 握手为准。默认 bootstrap 顺序为 PATH `code` / 私有 CLI、随后是远端缓存的所有 VS Code Server `code-server`（按新到旧）；协议不匹配会清理本次 tunnel/host 并继续下一个候选。
 
 私有 CLI 是唯一由插件生命周期管理层关注的远端可执行文件。CLI 通过官方更新服务管理 Agent Host 的下载、缓存与空闲更新；插件不覆盖 Server 文件。CLI 更新与 AHP SDK 更新分别执行，兼容握手和旧 Server 缓存构成升级安全网。
 

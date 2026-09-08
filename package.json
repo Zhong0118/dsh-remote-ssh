@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-ssh",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "Transparent local and Remote SSH workspaces for DeepSeek Harness",
   "publishConfig": {
     "access": "public",
@@ -95,7 +95,7 @@
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dependencies": {
-    "@microsoft/agent-host-protocol": "0.7.0"
+    "@microsoft/agent-host-protocol": "0.9.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.2",

@@ -101,7 +101,7 @@ Passwords, MFA prompts, and first-use host-key confirmation are not bridged into
 
 - DeepSeek Harness `0.1.2-rc.1` package surface;
 - POSIX/Linux SSH hosts;
-- `@microsoft/agent-host-protocol` 0.7 client with the Resource and Terminal subset validated against AHP 0.8;
+- `@microsoft/agent-host-protocol` 0.9 client (handshake also offers 0.8–0.5.1);
 - system OpenSSH configuration, SSH Agent, `known_hosts`, and `ProxyJump`.
 - local Visual Studio Code, Cursor, Windsurf, or VSCodium with a compatible Remote SSH extension for native remote file opening.
 

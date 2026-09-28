@@ -16,6 +16,8 @@ import { describe, expect, it } from 'vitest'
 class FakeResourceClient {
   readonly files = new Map<string, Buffer>()
   readonly terminal = new FakeSubscription()
+  readonly dispatched: { channel: string; action: { type: string; data?: string; cols?: number; rows?: number } }[] = []
+  autoExit = true
 
   async resourceWrite(params: { uri: string; data: string; encoding: string }) {
     this.files.set(params.uri, params.encoding === 'base64' ? Buffer.from(params.data, 'base64') : Buffer.from(params.data))
@@ -33,8 +35,9 @@ class FakeResourceClient {
 
   async request() { return {} }
   async subscribe() { return { result: {}, subscription: this.terminal as unknown as Subscription } }
-  dispatch(_channel: string, action: { type: string; data: string }) {
-    if (action.type === ActionType.TerminalInput && action.data.startsWith('exec env')) {
+  dispatch(channel: string, action: { type: string; data?: string; cols?: number; rows?: number }) {
+    this.dispatched.push({ channel, action })
+    if (this.autoExit && action.type === ActionType.TerminalInput && action.data?.startsWith('exec env')) {
       this.terminal.push({ type: ActionType.TerminalData, data: 'interactive-remote\r\n' })
       this.terminal.push({ type: ActionType.TerminalExited, exitCode: 9 })
     }
@@ -87,11 +90,16 @@ async function setup() {
     clientId: 'fake-client',
     getClient: async () => client as unknown as AhpClient,
   }
+  const localTerminalEnvironment = async (signal?: AbortSignal) => {
+    if (signal?.aborted) throw signal.reason
+    return { platform: 'windows' as const, defaultShell: 'pwsh.exe' }
+  }
   const shell = {
     resolve(request: Record<string, unknown>) {
       return { timeoutMs: 10_000, stdoutMaxBytes: 4096, ...request }
     },
-    async run(spec: { command: string; signal?: AbortSignal }) {
+    async execute(spec: { command: string; signal?: AbortSignal }) {
+      return { result: async () => {
       if (spec.command.includes('wait-for-cancel')) {
         if (!spec.signal?.aborted) await new Promise<void>(resolvePromise => spec.signal?.addEventListener('abort', () => { resolvePromise() }, { once: true }))
         return shellResult(null, 'SIGTERM')
@@ -101,6 +109,7 @@ async function setup() {
       client.files.set(fileUriFromPosixPath(output[1]!), Buffer.from('remote-stdout\n'))
       client.files.set(fileUriFromPosixPath(output[2]!), Buffer.from('remote-stderr\n'))
       return shellResult(23, null)
+      } }
     },
   }
   let sshFallbacks = 0
@@ -110,7 +119,7 @@ async function setup() {
     workspaceShell: async () => shell,
     sshTransport: () => { sshFallbacks += 1; return { executable: 'ssh', args: [], multiplexed: false } },
   }
-  ctx.provide('localSubprocess', { resolveExecutable: async (command: string) => command } as never)
+  ctx.provide('localSubprocess', { resolveExecutable: async (command: string) => command, terminalEnvironment: localTerminalEnvironment } as never)
   ctx.provide('remoteSshManager', manager as never)
   await ctx.plugin(TransparentSubprocessRuntime)
   return { ctx, client, alias, getSshFallbacks: () => sshFallbacks }
@@ -143,6 +152,41 @@ describe('AHP transparent subprocess', () => {
     )
     expect(command).toContain("'rg' '--files'")
     expect(command).not.toContain('@vscode/ripgrep')
+  })
+
+  it('delegates terminal environment lookup to the local provider without a cwd', async () => {
+    const { ctx } = await setup()
+    try {
+      await expect(ctx.subprocess.terminalEnvironment()).resolves.toEqual({ platform: 'windows', defaultShell: 'pwsh.exe' })
+      const controller = new AbortController()
+      controller.abort(new Error('cancel environment inspection'))
+      await expect(ctx.subprocess.terminalEnvironment(controller.signal)).rejects.toThrow('cancel environment inspection')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects a remote control pipe before starting a process', async () => {
+    const { ctx, client } = await setup()
+    try {
+      const spec = collectedSpec()
+      spec.stdio.control = 'pipe'
+      expect(() => ctx.subprocess.spawn(spec)).toThrow(/control pipe.*unsupported/i)
+      expect(client.files.size).toBe(0)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('exposes no control channel for ordinary remote processes', async () => {
+    const { ctx } = await setup()
+    try {
+      const handle = ctx.subprocess.spawn(collectedSpec())
+      expect(handle.control).toBeUndefined()
+      await handle.done
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it('uses the persistent AHP host and preserves separate collected outputs', async () => {
@@ -197,11 +241,55 @@ describe('AHP transparent subprocess', () => {
     expect(buildRemoteStdinWriterCommand("/tmp/a'b.fifo", "end'marker")).toContain("'/tmp/a'\"'\"'b.fifo'")
   })
 
+  it('sets remote TERM from terminalType and dispatches resize on the same AHP channel', async () => {
+    const { ctx, client, alias } = await setup()
+    client.autoExit = false
+    try {
+      const terminal = await ctx.subprocess.spawnTerminal({
+        argv: ['bash', '-i'], cwd: alias, rows: 30, cols: 100, terminalType: 'screen-256color', graceMs: 100,
+      })
+      const input = client.dispatched.find(({ action }) => action.type === ActionType.TerminalInput)!
+      expect(input.action.data).toContain("'TERM=screen-256color'")
+      await terminal.resize(120, 40)
+      expect(client.dispatched).toContainEqual({
+        channel: input.channel, action: { type: ActionType.TerminalResized, cols: 120, rows: 40 },
+      })
+      await terminal.terminate()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps unsupported remote shell activity unknown with a monotonic revision', async () => {
+    const { ctx, client, alias } = await setup()
+    client.autoExit = false
+    try {
+      const terminal = await ctx.subprocess.spawnTerminal({
+        argv: ['bash', '-i'], cwd: alias, rows: 30, cols: 100, terminalType: 'dumb', shellActivity: true, graceMs: 100,
+      })
+      const before = await terminal.inspectActivity()
+      expect(before.state).toBe('unknown')
+      await terminal.write('echo hi\n')
+      const after = await terminal.inspectActivity()
+      expect(after.state).toBe('unknown')
+      expect(after.revision).toBeGreaterThan(before.revision)
+      client.terminal.push({ type: ActionType.TerminalData, data: 'prompt? ' })
+      await once(terminal.output, 'data')
+      const outputRevision = await terminal.inspectActivity()
+      expect(outputRevision.state).toBe('unknown')
+      expect(outputRevision.revision).toBeGreaterThan(after.revision)
+      expect((await terminal.inspectActivity()).revision).toBe(outputRevision.revision)
+      await terminal.terminate()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('allocates interactive terminals through AHP without an SSH process', async () => {
     const { ctx, alias, getSshFallbacks } = await setup()
     try {
       const terminal = await ctx.subprocess.spawnTerminal({
-        argv: ['bash', '-i'], cwd: alias, rows: 30, cols: 100, graceMs: 100,
+        argv: ['bash', '-i'], cwd: alias, rows: 30, cols: 100, terminalType: 'xterm-256color', graceMs: 100,
       })
       const chunks: Buffer[] = []
       terminal.output.on('data', (chunk: Buffer) => { chunks.push(chunk) })

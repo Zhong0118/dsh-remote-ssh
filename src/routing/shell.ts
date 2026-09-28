@@ -4,7 +4,7 @@ import type {
   CollectedOutput,
   ShellExecRequest,
   ShellExecSpec,
-  ShellProcess,
+  ShellExecution,
   ShellProcessRead,
   ShellRunResult,
 } from '@deepseek-ai/dsh-shell'
@@ -73,6 +73,7 @@ export class TransparentShellExecutor extends ShellExecutor {
       command: request.command,
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
+      onExpiry: request.onExpiry ?? 'kill',
       stdoutMaxBytes,
       signal: request.signal,
       stdin: request.stdin,
@@ -82,93 +83,114 @@ export class TransparentShellExecutor extends ShellExecutor {
     }
   }
 
-  override async run(spec: ShellExecSpec): Promise<ShellRunResult> {
+  override async execute(spec: ShellExecSpec): Promise<ShellExecution> {
     assertUnconfined(spec)
     const route = this.manager.routeShell(spec.workdir, spec.dshEnv?.DSH_SESSION_ID)
     if (route.kind === 'remote') {
-      const result = await (await this.manager.workspaceShell(route, this.config.dialect)).run(spec)
-      return { ...result, sandbox: { mode: 'danger-full-access', denied: false } }
+      if (spec.signal?.aborted) throw spec.signal.reason ?? new Error('shell aborted before preparation')
+      const preparation = this.manager.workspaceShell(route, this.config.dialect).then(shell => shell.execute(spec))
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let abortListener: (() => void) | undefined
+      let cause: 'timeout' | 'abort' | undefined
+      let stop!: (cause: 'timeout' | 'abort') => void
+      const stopped = new Promise<'timeout' | 'abort'>(resolve => { stop = reason => { if (cause === undefined) { cause = reason; resolve(reason) } } })
+      if (spec.onExpiry === 'kill') timer = setTimeout(() => { stop('timeout') }, spec.timeoutMs)
+      if (spec.signal !== undefined) {
+        abortListener = () => { stop('abort') }
+        spec.signal.addEventListener('abort', abortListener, { once: true })
+      }
+      try {
+        const outcome = await Promise.race([
+          preparation.then(execution => ({ kind: 'ready' as const, execution })),
+          stopped.then(reason => ({ kind: 'stop' as const, reason })),
+        ])
+        if (outcome.kind === 'stop') {
+          void preparation.then(execution => { execution.kill() }).catch(() => {})
+          if (outcome.reason === 'abort') throw spec.signal?.reason ?? new Error('shell aborted before publication')
+          return expiredExecution(spec)
+        }
+        const execution = outcome.execution
+        execution.sandbox = { mode: 'danger-full-access', denied: false }
+        const result = execution.result.bind(execution)
+        let projection: Promise<ShellRunResult> | undefined
+        execution.result = () => projection ??= result().then(value => ({ ...value, sandbox: { mode: 'danger-full-access', denied: false } }))
+        return execution
+      } finally {
+        if (timer !== undefined) clearTimeout(timer)
+        if (abortListener !== undefined) spec.signal?.removeEventListener('abort', abortListener)
+      }
     }
+    if (spec.signal?.aborted) throw spec.signal.reason ?? new Error('shell aborted before preparation')
     const controller = new AbortController()
     let cause: 'timeout' | 'abort' | undefined
-    const abort = (): void => {
+    const stop = (reason: 'timeout' | 'abort'): void => {
       if (cause !== undefined) return
-      cause = 'abort'
-      controller.abort(spec.signal?.reason)
+      cause = reason
+      controller.abort(reason === 'abort' ? spec.signal?.reason : new Error('shell timeout'))
     }
-    if (spec.signal?.aborted) abort()
-    else spec.signal?.addEventListener('abort', abort, { once: true })
-    const timer = setTimeout(() => {
-      if (cause !== undefined) return
-      cause = 'timeout'
-      controller.abort(new Error('shell timeout'))
-    }, spec.timeoutMs)
+    const abort = (): void => { stop('abort') }
+    spec.signal?.addEventListener('abort', abort, { once: true })
+    const timer = spec.onExpiry === 'kill' ? setTimeout(() => { stop('timeout') }, spec.timeoutMs) : undefined
     try {
       const handle = this.ctx.subprocess.spawn(this.spawnSpec(spec, spec.stdoutMaxBytes, controller.signal))
-      const outcome = await handle.done
       const collected = requireCollected(handle)
-      return {
-        ...outcome,
-        timedOut: cause === 'timeout',
-        aborted: cause === 'abort',
-        timeoutMs: spec.timeoutMs,
-        stdout: finalOutput(collected.stdout),
-        stderr: finalOutput(collected.stderr),
-        sandbox: { mode: 'danger-full-access', denied: false },
+      let stdoutOffset = 0
+      let stderrOffset = 0
+      let failure: unknown
+      let failureText = ''
+      let finished = false
+      let resultPromise: Promise<ShellRunResult> | undefined
+      const observed = {
+        stdout: collected.stdout,
+        stderr: { readFrom: (offset: number) => failureText ? { text: failureText.slice(offset), nextOffset: Buffer.byteLength(failureText), lossy: false } : collected.stderr.readFrom(offset) },
       }
-    } finally {
-      clearTimeout(timer)
+      const execution: ShellExecution = {
+        status: 'running', exitCode: null, signal: null,
+        sandbox: { mode: 'danger-full-access', denied: false }, observed,
+        done: handle.done.then(outcome => {
+          execution.exitCode = outcome.exitCode
+          execution.signal = outcome.signal
+          execution.status = outcome.signal === null ? 'completed' : 'killed'
+        }, (error: unknown) => {
+          failure = error
+          failureText = `spawn failed: ${String(error)}\n`
+          execution.status = 'killed'
+          execution.signal = 'SIGTERM'
+        }).finally(() => { finished = true; if (timer !== undefined) clearTimeout(timer); spec.signal?.removeEventListener('abort', abort) }),
+        result: () => resultPromise ??= execution.done.then(() => {
+          if (failure !== undefined) throw failure
+          return {
+            exitCode: execution.exitCode, signal: execution.signal,
+            timedOut: cause === 'timeout', aborted: cause === 'abort', timeoutMs: spec.timeoutMs,
+            stdout: finalOutput(collected.stdout), stderr: finalOutput(collected.stderr),
+            sandbox: { mode: 'danger-full-access', denied: false },
+          }
+        }),
+        readOutput: (): ShellProcessRead => {
+          const stdout = observed.stdout.readFrom(stdoutOffset)
+          const stderr = observed.stderr.readFrom(stderrOffset)
+          stdoutOffset = stdout.nextOffset
+          stderrOffset = stderr.nextOffset
+          return {
+            delta: stdout.text + (stderr.text ? `${stdout.text && !stdout.text.endsWith('\n') ? '\n' : ''}[stderr]\n${stderr.text}` : ''),
+            lossy: stdout.lossy || stderr.lossy,
+            ...(stdout.spillPath === undefined ? {} : { stdoutSpillPath: stdout.spillPath }),
+            ...(stderr.spillPath === undefined ? {} : { stderrSpillPath: stderr.spillPath }),
+          }
+        },
+        kill: () => {
+          if (finished || controller.signal.aborted) return false
+          controller.abort(new Error('shell killed'))
+          handle.terminate()
+          return true
+        },
+      }
+      return execution
+    } catch (error) {
+      if (timer !== undefined) clearTimeout(timer)
       spec.signal?.removeEventListener('abort', abort)
+      throw error
     }
-  }
-
-  override start(spec: ShellExecSpec): ShellProcess {
-    assertUnconfined(spec)
-    const route = this.manager.routeShell(spec.workdir, spec.dshEnv?.DSH_SESSION_ID)
-    if (route.kind === 'remote') {
-      return new DeferredShellProcess(this.manager.workspaceShell(route, this.config.dialect), spec)
-    }
-    const handle = this.ctx.subprocess.spawn(this.spawnSpec(spec, this.config.maxOutputBytes, spec.signal))
-    const collected = requireCollected(handle)
-    let stdoutOffset = 0
-    let stderrOffset = 0
-    let spawnFailure: string | undefined
-    const processHandle: ShellProcess = {
-      status: 'running',
-      exitCode: null,
-      signal: null,
-      sandbox: { mode: 'danger-full-access', denied: false },
-      done: handle.done.then(outcome => {
-        processHandle.exitCode = outcome.exitCode
-        processHandle.signal = outcome.signal
-        processHandle.status = outcome.signal === null ? 'completed' : 'killed'
-      }, (error: unknown) => {
-        processHandle.status = 'killed'
-        processHandle.signal = 'SIGTERM'
-        spawnFailure = `spawn failed: ${String(error)}`
-      }),
-      readOutput: (): ShellProcessRead => {
-        const stdout = collected.stdout.readFrom(stdoutOffset)
-        const stderr = collected.stderr.readFrom(stderrOffset)
-        stdoutOffset = stdout.nextOffset
-        stderrOffset = stderr.nextOffset
-        const error = stderr.text || spawnFailure || ''
-        spawnFailure = undefined
-        return {
-          delta: stdout.text + (error.length === 0 ? '' : `${stdout.text.length > 0 && !stdout.text.endsWith('\n') ? '\n' : ''}[stderr]\n${error}`),
-          lossy: stdout.lossy || stderr.lossy,
-          ...(stdout.spillPath === undefined ? {} : { stdoutSpillPath: stdout.spillPath }),
-          ...(stderr.spillPath === undefined ? {} : { stderrSpillPath: stderr.spillPath }),
-        }
-      },
-      kill: (): boolean => {
-        if (processHandle.status !== 'running') return false
-        processHandle.status = 'killed'
-        handle.terminate()
-        return true
-      },
-    }
-    return processHandle
   }
 
   private spawnSpec(spec: ShellExecSpec, stdoutMaxBytes: number, signal: AbortSignal | undefined): SubprocessSpawnSpec {
@@ -193,44 +215,19 @@ export class TransparentShellExecutor extends ShellExecutor {
   }
 }
 
-class DeferredShellProcess implements ShellProcess {
-  status: 'running' | 'completed' | 'killed' = 'running'
-  exitCode: number | null = null
-  signal: NodeJS.Signals | null = null
-  readonly sandbox = { mode: 'danger-full-access' as const, denied: false }
-  readonly done: Promise<void>
-
-  private inner: ShellProcess | undefined
-  private cancelled = false
-  private startupError = ''
-
-  constructor(shell: Promise<ShellExecutor>, spec: ShellExecSpec) {
-    this.done = shell.then(async executor => {
-      if (this.cancelled) return
-      this.inner = executor.start(spec)
-      await this.inner.done
-      this.status = this.inner.status
-      this.exitCode = this.inner.exitCode
-      this.signal = this.inner.signal
-    }, (error: unknown) => {
-      this.status = 'killed'
-      this.signal = 'SIGTERM'
-      this.startupError = `[dsh-remote-ssh infrastructure error] ${String(error)}\n`
-    })
+function expiredExecution(spec: ShellExecSpec): ShellExecution {
+  const empty = { readFrom: (_offset: number) => ({ text: '', nextOffset: 0, lossy: false }) }
+  const sandbox = { mode: 'danger-full-access' as const, denied: false }
+  const result: ShellRunResult = {
+    exitCode: null, signal: null, timedOut: true, aborted: false, timeoutMs: spec.timeoutMs,
+    stdout: { text: '', truncated: false }, stderr: { text: '', truncated: false }, sandbox,
   }
-
-  readOutput(): ShellProcessRead {
-    if (this.inner !== undefined) return this.inner.readOutput()
-    const delta = this.startupError
-    this.startupError = ''
-    return { delta, lossy: false }
-  }
-
-  kill(): boolean {
-    if (this.status !== 'running') return false
-    this.status = 'killed'
-    this.cancelled = true
-    return this.inner?.kill() ?? true
+  const projected = Promise.resolve(result)
+  return {
+    status: 'completed', exitCode: null, signal: null, sandbox,
+    observed: { stdout: empty, stderr: empty }, done: Promise.resolve(),
+    result: () => projected,
+    readOutput: () => ({ delta: '', lossy: false }), kill: () => false,
   }
 }
 

@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { ShellExecRequest, ShellExecSpec, ShellExecutor, ShellProcess, ShellRunResult } from "@deepseek-ai/dsh-shell";
+import { ShellExecRequest, ShellExecSpec, ShellExecution, ShellExecutor } from "@deepseek-ai/dsh-shell";
 //#region src/routing/shell.d.ts
 interface Config {
   dialect: 'bash' | 'pwsh';
@@ -22,8 +22,7 @@ declare class TransparentShellExecutor extends ShellExecutor {
   /** Remote and local routing is explicitly unconfined at the process layer. */
   get sandboxMode(): 'danger-full-access';
   resolve(request: ShellExecRequest): ShellExecSpec;
-  run(spec: ShellExecSpec): Promise<ShellRunResult>;
-  start(spec: ShellExecSpec): ShellProcess;
+  execute(spec: ShellExecSpec): Promise<ShellExecution>;
   private spawnSpec;
   private argv;
 }

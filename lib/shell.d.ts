@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { ShellExecRequest, ShellExecSpec, ShellExecutor, ShellProcess, ShellRunResult } from "@deepseek-ai/dsh-shell";
+import { ShellExecRequest, ShellExecSpec, ShellExecution, ShellExecutor } from "@deepseek-ai/dsh-shell";
 //#region src/transport/shell.d.ts
 interface Config {
   defaultTimeoutMs?: number;
@@ -27,8 +27,7 @@ declare class RemoteSshShellExecutor extends ShellExecutor {
   private readonly processes;
   constructor(ctx: Context, config: Config);
   resolve(request: ShellExecRequest): ShellExecSpec;
-  run(spec: ShellExecSpec): Promise<ShellRunResult>;
-  start(spec: ShellExecSpec): ShellProcess;
+  execute(spec: ShellExecSpec): Promise<ShellExecution>;
   private validate;
 }
 //#endregion

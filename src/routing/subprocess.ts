@@ -7,6 +7,7 @@ import type { ContentEncoding, TerminalClientClaim } from '@microsoft/agent-host
 import type { AhpClient, Subscription } from '@microsoft/agent-host-protocol/client'
 import { Context } from '@deepseek-ai/cordis'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type {
   SubprocessCollectedOutputs,
   SubprocessHandle,
@@ -15,6 +16,7 @@ import type {
   SubprocessOutputRead,
   SubprocessOutputReader,
   SubprocessSpawnSpec,
+  SubprocessTerminalEnvironment,
   SubprocessTerminalForeground,
   SubprocessTerminalHandle,
   SubprocessTerminalSignal,
@@ -50,9 +52,14 @@ export class TransparentSubprocessRuntime extends SubprocessRuntime {
     return this.local.resolveExecutable(command, env, signal)
   }
 
+  override terminalEnvironment(signal?: AbortSignal): Promise<SubprocessTerminalEnvironment> {
+    return this.local.terminalEnvironment(signal)
+  }
+
   override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     const route = this.manager.route(undefined, spec.cwd)
     if (route.kind === 'local') return this.local.spawn(spec)
+    if (spec.stdio.control === 'pipe') throw new Error('dsh-remote-ssh: remote subprocess control pipe is unsupported by AHP')
     const handle = new RemoteAhpProcessHandle(
       route,
       this.manager.workspaceContext(route),
@@ -88,6 +95,7 @@ export function canUseAhpSubprocess(_spec: SubprocessSpawnSpec): boolean {
 class RemoteAhpProcessHandle implements SubprocessHandle {
   readonly pid = -1
   readonly stdin: Writable | undefined
+  readonly control = undefined
   readonly stdout: Readable | undefined
   readonly stderr: Readable | undefined
   readonly collected: SubprocessCollectedOutputs
@@ -159,7 +167,7 @@ class RemoteAhpProcessHandle implements SubprocessHandle {
     const empty = { data: '', encoding: 'base64' as ContentEncoding }
     let writer: RemoteAhpTerminalHandle | undefined
     let completed = false
-    let run: ReturnType<typeof shell.run> | undefined
+    let run: Promise<ShellRunResult> | undefined
     try {
       await Promise.all([
         client.resourceWrite({ uri: stdoutUri, ...empty }),
@@ -173,12 +181,12 @@ class RemoteAhpProcessHandle implements SubprocessHandle {
             }),
       ])
       if (stdinMode === 'pipe') {
-        const prepared = await shell.run(shell.resolve({
+        const prepared = await (await shell.execute(shell.resolve({
           command: `rm -f -- ${quotePosix(fifoPath)} && mkfifo -- ${quotePosix(fifoPath)}`,
           workdir: this.spec.cwd,
           signal: this.controller.signal,
           sandboxPolicy: { mode: 'danger-full-access', workspaceRoot: this.route.aliasPath },
-        }))
+        }))).result()
         if (prepared.exitCode !== 0) {
           if (this.controller.signal.aborted) return { exitCode: null, signal: prepared.signal ?? 'SIGTERM' }
           throw new Error(`dsh-remote-ssh: failed to create remote stdin FIFO (exit ${prepared.exitCode ?? prepared.signal})`)
@@ -192,7 +200,7 @@ class RemoteAhpProcessHandle implements SubprocessHandle {
         signal: this.controller.signal,
         sandboxPolicy: { mode: 'danger-full-access', workspaceRoot: this.route.aliasPath },
       })
-      run = shell.run(resolved).finally(() => { completed = true })
+      run = shell.execute(resolved).then(execution => execution.result()).finally(() => { completed = true })
       if (stdinMode === 'pipe') {
         const endMarker = `__DSH_STDIN_EOF_${randomUUID().replaceAll('-', '')}__`
         writer = await RemoteAhpTerminalHandle.create(this.route, await this.workspace, {
@@ -200,6 +208,7 @@ class RemoteAhpProcessHandle implements SubprocessHandle {
           cwd: this.spec.cwd,
           rows: 24,
           cols: 80,
+          terminalType: 'dumb',
           graceMs: this.spec.graceMs,
           signal: this.controller.signal,
         })
@@ -249,6 +258,7 @@ class RemoteAhpTerminalHandle implements SubprocessTerminalHandle {
   private stopping: ((signal: NodeJS.Signals) => void) | undefined
   private readonly stopped = new Promise<NodeJS.Signals>(resolvePromise => { this.stopping = resolvePromise })
   private terminating: Promise<void> | undefined
+  private activityRevision = 0
 
   private constructor(
     private readonly client: AhpClient,
@@ -287,7 +297,7 @@ class RemoteAhpTerminalHandle implements SubprocessTerminalHandle {
         spec.signal.addEventListener('abort', onAbort, { once: true })
         void handle.done.finally(() => { spec.signal?.removeEventListener('abort', onAbort) }).catch(() => {})
       }
-      client.dispatch(channel, { type: ActionType.TerminalInput, data: `${buildRemoteInteractiveCommand(spec.argv, spec.env)}\r` })
+      client.dispatch(channel, { type: ActionType.TerminalInput, data: `${buildRemoteInteractiveCommand(spec.argv, { ...spec.env, TERM: spec.terminalType })}\r` })
       return handle
     } catch (error) {
       await client.request('disposeTerminal', { channel }).catch(() => {})
@@ -297,6 +307,15 @@ class RemoteAhpTerminalHandle implements SubprocessTerminalHandle {
 
   async write(data: string): Promise<void> {
     this.client.dispatch(this.channel, { type: ActionType.TerminalInput, data })
+    this.activityRevision++
+  }
+
+  async resize(cols: number, rows: number): Promise<void> {
+    this.client.dispatch(this.channel, { type: ActionType.TerminalResized, cols, rows })
+  }
+
+  async inspectActivity(): Promise<{ state: 'unknown'; revision: number }> {
+    return { state: 'unknown', revision: this.activityRevision }
   }
 
   async inspectForeground(): Promise<SubprocessTerminalForeground | undefined> {
@@ -336,8 +355,11 @@ class RemoteAhpTerminalHandle implements SubprocessTerminalHandle {
         const event = next.result.value
         if (event.type !== 'action') continue
         const action = event.params.action
-        if (action.type === ActionType.TerminalData) this.output.write(action.data)
-        else if (action.type === ActionType.TerminalExited) {
+        if (action.type === ActionType.TerminalData) {
+          this.activityRevision++
+          this.output.write(action.data)
+        } else if (action.type === ActionType.TerminalExited) {
+          this.activityRevision++
           return { exitCode: action.exitCode ?? null, signal: action.exitCode === undefined ? 'SIGTERM' : null }
         }
       }

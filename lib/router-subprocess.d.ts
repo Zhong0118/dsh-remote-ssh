@@ -1,7 +1,7 @@
 import { RemoteSshManager, RemoteWorkspaceRoute } from "./manager.js";
 import { Context } from "@deepseek-ai/cordis";
 import { PassThrough, Writable } from "node:stream";
-import { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec, SubprocessTerminalForeground, SubprocessTerminalHandle, SubprocessTerminalSignal, SubprocessTerminalSpawnSpec } from "@deepseek-ai/dsh-subprocess";
+import { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec, SubprocessTerminalEnvironment, SubprocessTerminalForeground, SubprocessTerminalHandle, SubprocessTerminalSignal, SubprocessTerminalSpawnSpec } from "@deepseek-ai/dsh-subprocess";
 //#region src/routing/subprocess.d.ts
 /** Subprocess router that selects the host from `spec.cwd`, never tool identity. */
 declare class TransparentSubprocessRuntime extends SubprocessRuntime {
@@ -12,6 +12,7 @@ declare class TransparentSubprocessRuntime extends SubprocessRuntime {
   private readonly remoteTerminals;
   constructor(ctx: Context);
   resolveExecutable(command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal): Promise<string>;
+  terminalEnvironment(signal?: AbortSignal): Promise<SubprocessTerminalEnvironment>;
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle;
   spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>;
 }
@@ -28,9 +29,15 @@ declare class RemoteAhpTerminalHandle implements SubprocessTerminalHandle {
   private stopping;
   private readonly stopped;
   private terminating;
+  private activityRevision;
   private constructor();
   static create(route: RemoteWorkspaceRoute, workspace: Awaited<ReturnType<RemoteSshManager['workspaceContext']>>, spec: SubprocessTerminalSpawnSpec): Promise<RemoteAhpTerminalHandle>;
   write(data: string): Promise<void>;
+  resize(cols: number, rows: number): Promise<void>;
+  inspectActivity(): Promise<{
+    state: 'unknown';
+    revision: number;
+  }>;
   inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;
   signalForeground(signal: SubprocessTerminalSignal): Promise<number>;
   terminate(): Promise<void>;

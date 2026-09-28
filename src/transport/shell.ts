@@ -9,7 +9,7 @@ import type {
   CollectedOutput,
   ShellExecRequest,
   ShellExecSpec,
-  ShellProcess,
+  ShellExecution,
   ShellProcessRead,
   ShellRunResult,
 } from '@deepseek-ai/dsh-shell'
@@ -86,6 +86,7 @@ export class RemoteSshShellExecutor extends ShellExecutor {
       command: request.command,
       workdir: request.workdir ?? this.mapper.localWorkspace,
       timeoutMs,
+      onExpiry: request.onExpiry ?? 'kill',
       stdoutMaxBytes,
       signal: request.signal,
       stdin: request.stdin,
@@ -95,23 +96,12 @@ export class RemoteSshShellExecutor extends ShellExecutor {
     }
   }
 
-  override async run(spec: ShellExecSpec): Promise<ShellRunResult> {
-    const outcome = await executeTerminal(this.remote, this.mapper, this.config.shellCommand, spec, spec.stdoutMaxBytes, spec.timeoutMs)
-    return {
-      exitCode: outcome.exitCode,
-      signal: outcome.signal,
-      timedOut: outcome.timedOut,
-      aborted: outcome.aborted,
-      timeoutMs: spec.timeoutMs,
-      stdout: outcome.output.collected(),
-      stderr: { text: '', truncated: false },
-    }
-  }
-
-  override start(spec: ShellExecSpec): ShellProcess {
-    const process = new AhpShellProcess(this.remote, this.mapper, this.config.shellCommand, spec, this.config.outputMaxBytes)
+  override async execute(spec: ShellExecSpec): Promise<ShellExecution> {
+    assertUnconfined(spec)
+    const process = new AhpShellProcess(this.remote, this.mapper, this.config.shellCommand, spec)
+    await process.prepared
     this.processes.add(process)
-    void process.done.finally(() => { this.processes.delete(process) })
+    void process.done.then(() => { this.processes.delete(process) })
     return process
   }
 
@@ -126,36 +116,66 @@ export class RemoteSshShellExecutor extends ShellExecutor {
   }
 }
 
-class AhpShellProcess implements ShellProcess {
+class AhpShellProcess implements ShellExecution {
   status: 'running' | 'completed' | 'killed' = 'running'
   exitCode: number | null = null
   signal: NodeJS.Signals | null = null
   readonly done: Promise<void>
+  readonly prepared: Promise<void>
+  readonly observed: { stdout: TailBuffer; stderr: TailBuffer }
 
   private readonly controller = new AbortController()
+  private finished = false
   private readonly output: TailBuffer
+  private readonly stderr: TailBuffer
+  private outcome: ExecutionOutcome | undefined
+  private failure: unknown
+  private resultPromise: Promise<ShellRunResult> | undefined
 
-  constructor(remote: RemoteSshRuntime, mapper: WorkspacePathMapper, shellCommand: string, spec: ShellExecSpec, outputMaxBytes: number) {
-    this.output = new TailBuffer(outputMaxBytes)
-    this.done = executeTerminal(remote, mapper, shellCommand, { ...spec, signal: combineSignals(spec.signal, this.controller.signal) }, outputMaxBytes, 0, this.output)
-      .then((outcome) => {
+  constructor(remote: RemoteSshRuntime, mapper: WorkspacePathMapper, shellCommand: string, private readonly spec: ShellExecSpec) {
+    this.output = new TailBuffer(spec.stdoutMaxBytes)
+    this.stderr = new TailBuffer(spec.stdoutMaxBytes)
+    this.observed = { stdout: this.output, stderr: this.stderr }
+    let prepared!: () => void
+    let failedPreparation!: (reason: unknown) => void
+    this.prepared = new Promise<void>((resolve, reject) => { prepared = resolve; failedPreparation = reject })
+    this.done = executeTerminal(remote, mapper, shellCommand, { ...spec, signal: combineSignals(spec.signal, this.controller.signal) }, this.output, prepared)
+      .then(outcome => {
+        this.outcome = outcome
         this.exitCode = outcome.exitCode
         this.signal = outcome.signal
         this.status = outcome.signal === null ? 'completed' : 'killed'
+        prepared()
       }, (error: unknown) => {
-        this.output.append(`\n[dsh-remote-ssh infrastructure error] ${errorMessage(error)}\n`)
-        this.exitCode = null
+        this.failure = error
+        this.stderr.append(`spawn failed: ${errorMessage(error)}\n`)
         this.signal = 'SIGTERM'
         this.status = 'killed'
-      })
+        failedPreparation(error)
+      }).finally(() => { this.finished = true })
+  }
+
+  result(): Promise<ShellRunResult> {
+    return this.resultPromise ??= this.done.then(() => {
+      if (this.failure !== undefined) throw this.failure
+      const outcome = this.outcome!
+      return {
+        exitCode: outcome.exitCode, signal: outcome.signal,
+        timedOut: outcome.timedOut, aborted: outcome.aborted,
+        timeoutMs: this.spec.timeoutMs,
+        stdout: this.output.collected(), stderr: this.stderr.collected(),
+      }
+    })
   }
 
   readOutput(): ShellProcessRead {
-    return this.output.readIncremental()
+    const stdout = this.output.readIncremental()
+    const stderr = this.stderr.readIncremental()
+    return { delta: stdout.delta + (stderr.delta ? `\n[stderr]\n${stderr.delta}` : ''), lossy: stdout.lossy || stderr.lossy }
   }
 
   kill(): boolean {
-    if (this.status !== 'running' || this.controller.signal.aborted) return false
+    if (this.finished || this.controller.signal.aborted) return false
     this.controller.abort(new Error('background process killed'))
     return true
   }
@@ -166,15 +186,9 @@ async function executeTerminal(
   mapper: WorkspacePathMapper,
   shellCommand: string,
   spec: ShellExecSpec,
-  outputMaxBytes: number,
-  timeoutMs: number,
-  existingOutput?: TailBuffer,
+  output: TailBuffer,
+  prepared: () => void,
 ): Promise<ExecutionOutcome> {
-  const output = existingOutput ?? new TailBuffer(outputMaxBytes)
-  if (spec.sandboxPolicy !== undefined && spec.sandboxPolicy.mode !== 'danger-full-access') {
-    throw new Error(`dsh-remote-ssh/shell: ${spec.sandboxPolicy.mode} cannot confine arbitrary remote commands; use danger-full-access or a separately sandboxed SSH account`)
-  }
-  const client = await remote.getClient()
   const token = randomUUID()
   const terminalUri = `ahp-terminal:/${token}`
   const commandPath = posix.join(remote.runtimeRoot, `command-${token}.sh`)
@@ -182,6 +196,7 @@ async function executeTerminal(
   const commandUri = fileUriFromPosixPath(commandPath)
   const stdinUri = fileUriFromPosixPath(stdinPath)
   const workdir = mapper.toRemotePath(spec.workdir)
+  let client: AhpClient | undefined
   let subscription: Subscription | undefined
   let terminalCreated = false
   let stdinCreated = false
@@ -190,6 +205,12 @@ async function executeTerminal(
   let stopCause: 'timeout' | 'abort' | undefined
   let resolveStop: ((cause: 'timeout' | 'abort') => void) | undefined
   const stopped = new Promise<'timeout' | 'abort'>(resolvePromise => { resolveStop = resolvePromise })
+  const prepare = async <T>(operation: Promise<T>): Promise<{ kind: 'ready'; value: T } | { kind: 'timeout' }> => {
+    const winner = await Promise.race([operation.then(value => ({ kind: 'ready' as const, value })), stopped.then(cause => ({ kind: 'stop' as const, cause }))])
+    if (winner.kind === 'ready') return winner
+    if (winner.cause === 'abort') throw spec.signal?.reason ?? new Error('shell aborted before publication')
+    return { kind: 'timeout' }
+  }
 
   const stop = (cause: 'timeout' | 'abort'): void => {
     if (stopCause !== undefined) return
@@ -198,14 +219,22 @@ async function executeTerminal(
   }
 
   try {
-    if (spec.signal?.aborted) stop('abort')
-    await client.resourceWrite({ uri: commandUri, data: spec.command, encoding: UTF8, contentType: 'text/x-shellscript' })
+    if (spec.signal?.aborted) throw spec.signal.reason ?? new Error('shell aborted before preparation')
+    if (spec.onExpiry === 'kill') timer = setTimeout(() => { stop('timeout') }, spec.timeoutMs)
+    if (spec.signal !== undefined) {
+      abortListener = () => { stop('abort') }
+      spec.signal.addEventListener('abort', abortListener, { once: true })
+    }
+    const connection = await prepare(remote.getClient())
+    if (connection.kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
+    client = connection.value
+    if ((await prepare(client.resourceWrite({ uri: commandUri, data: spec.command, encoding: UTF8, contentType: 'text/x-shellscript' }))).kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
     if (spec.stdin !== undefined) {
-      await client.resourceWrite({ uri: stdinUri, data: Buffer.from(spec.stdin).toString('base64'), encoding: 'base64' as ContentEncoding })
+      if ((await prepare(client.resourceWrite({ uri: stdinUri, data: Buffer.from(spec.stdin).toString('base64'), encoding: 'base64' as ContentEncoding }))).kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
       stdinCreated = true
     }
     const claim = { kind: 'client', clientId: remote.clientId } as TerminalClientClaim
-    await client.request('createTerminal', {
+    const creation = client.request('createTerminal', {
       channel: terminalUri,
       claim,
       name: 'DeepSeek Harness Remote SSH',
@@ -213,15 +242,21 @@ async function executeTerminal(
       cols: 120,
       rows: 30,
     })
-    terminalCreated = true
-    const subscribed = await client.subscribe(terminalUri)
-    subscription = subscribed.subscription
-
-    if (timeoutMs > 0) timer = setTimeout(() => { stop('timeout') }, timeoutMs)
-    if (spec.signal !== undefined) {
-      abortListener = () => { stop('abort') }
-      spec.signal.addEventListener('abort', abortListener, { once: true })
+    if ((await prepare(creation)).kind === 'timeout') {
+      void creation.then(() => client?.request('disposeTerminal', { channel: terminalUri })).catch(() => {})
+      return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
     }
+    terminalCreated = true
+    const subscribing = client.subscribe(terminalUri)
+    const subscribed = await prepare(subscribing)
+    if (subscribed.kind === 'timeout') {
+      void subscribing.then(value => value.subscription.close()).catch(() => {})
+      return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
+    }
+    subscription = subscribed.value.subscription
+
+    if (stopCause === 'abort') throw spec.signal?.reason ?? new Error('shell aborted before publication')
+    if (stopCause === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
 
     const env = mergeEnvironment(mapper, spec)
     const envArgs = Object.entries(env).map(([key, value]) => `${key}=${quotePosix(value)}`).join(' ')
@@ -232,7 +267,10 @@ async function executeTerminal(
     // the RS/US bytes emitted by printf.
     const marker = new TerminalOutputCapture(token, output)
     const input = `printf '\\036DSH:${token}:BEGIN\\037'; env ${envArgs} ${quotePosix(shellCommand)} ${quotePosix(commandPath)} < ${stdinRedirect}; __dsh_status=$?; printf '\\036DSH:${token}:END:%s\\037' "$__dsh_status"; exit "$__dsh_status"\r`
+    if (stopCause === 'abort') throw spec.signal?.reason ?? new Error('shell aborted before publication')
+    if (stopCause === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
     client.dispatch(terminalUri, { type: ActionType.TerminalInput, data: input })
+    prepared()
 
     let commandId: string | undefined
     for (;;) {
@@ -241,8 +279,8 @@ async function executeTerminal(
         stopped.then(cause => ({ kind: 'stop' as const, cause })),
       ])
       if (eventOrStop.kind === 'stop') {
-        await client.request('disposeTerminal', { channel: terminalUri }).catch(() => {})
         terminalCreated = false
+        void client.request('disposeTerminal', { channel: terminalUri }).catch(() => {})
         return {
           exitCode: null,
           signal: 'SIGTERM',
@@ -301,9 +339,9 @@ async function executeTerminal(
     if (timer !== undefined) clearTimeout(timer)
     if (abortListener !== undefined) spec.signal?.removeEventListener('abort', abortListener)
     await subscription?.close().catch(() => {})
-    if (terminalCreated) await client.request('disposeTerminal', { channel: terminalUri }).catch(() => {})
-    await client.resourceDelete({ uri: commandUri }).catch(() => {})
-    if (stdinCreated) await client.resourceDelete({ uri: stdinUri }).catch(() => {})
+    if (terminalCreated) await client?.request('disposeTerminal', { channel: terminalUri }).catch(() => {})
+    await client?.resourceDelete({ uri: commandUri }).catch(() => {})
+    if (stdinCreated) await client?.resourceDelete({ uri: stdinUri }).catch(() => {})
   }
 }
 
@@ -373,6 +411,12 @@ class TailBuffer {
   private total = 0
   private readOffset = 0
 
+  readFrom(fromByte: number) {
+    const lossy = fromByte < this.tailStart
+    const start = Math.max(fromByte, this.tailStart) - this.tailStart
+    return { text: this.tail.subarray(start).toString('utf8'), nextOffset: this.total, lossy }
+  }
+
   constructor(private readonly maxBytes: number) {}
 
   append(value: string): void {
@@ -404,6 +448,12 @@ class TailBuffer {
 function clampPositive(value: number, max: number, name: string): number {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`dsh-remote-ssh/shell: ${name} must be positive`)
   return Math.min(Math.floor(value), max)
+}
+
+function assertUnconfined(spec: ShellExecSpec): void {
+  if (spec.sandboxPolicy !== undefined && spec.sandboxPolicy.mode !== 'danger-full-access') {
+    throw new Error(`dsh-remote-ssh/shell: ${spec.sandboxPolicy.mode} cannot confine arbitrary remote commands; use danger-full-access or a separately sandboxed SSH account`)
+  }
 }
 
 function combineSignals(first: AbortSignal | undefined, second: AbortSignal): AbortSignal {

@@ -29,7 +29,6 @@ export function apply(ctx: Context): void {
   const previous = target[HOOK_SYMBOL]
   const hook: SearchPathHook = (path, workdir) => remoteAbsolutePath(ctx.remoteSshManager, path, workdir)
   target[HOOK_SYMBOL] = hook
-  ctx.provide('remoteSshSearchHook', {})
 
   const moduleHooks = registerHooks({
     load(url, context, nextLoad): LoadFnOutput {
@@ -42,6 +41,7 @@ export function apply(ctx: Context): void {
     if (!isSearchPackageModule(url)) continue
     ctx.loader.internal?.loadCache.delete(url)
   }
+  ctx.provide('remoteSshSearchHook', {})
 
   ctx.effect(() => () => {
     moduleHooks.deregister()

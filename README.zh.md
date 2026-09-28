@@ -60,7 +60,7 @@ Codex、Claude Code 及其他自动化 Agent 应直接遵循 [INSTALL.md](INSTAL
 远端主机需要：
 
 - POSIX shell，以及可非交互使用的 OpenSSH 连接；
-- 用于 shell 和子进程执行的 `bash`、`base64` 与 `mkfifo`；
+- 用于 shell、byte-range 文件读取和子进程执行的 `bash`、`base64`、`dd` 与 `mkfifo`；
 - 为 glob 和 grep 工具提供的 `rg`；
 - 由官方 VS Code CLI 或已有 VS Code Server 提供的 VS Code Agent Host。
 
@@ -99,7 +99,7 @@ Web UI 不桥接密码、MFA 和首次 host-key 确认。请先通过 OpenSSH �
 
 ## 兼容性
 
-- DeepSeek Harness `0.1.2-rc.1` package surface；
+- DeepSeek Harness `0.1.7-rc.2` package surface；
 - POSIX/Linux SSH 主机；
 - `@microsoft/agent-host-protocol` 0.9 客户端（握手同时提供 0.8–0.5.1）；
 - 系统 OpenSSH 配置、SSH Agent、`known_hosts` 和 `ProxyJump`。

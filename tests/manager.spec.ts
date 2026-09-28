@@ -2,23 +2,33 @@ import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { SettingsProvider } from '@deepseek-ai/dsh-settings'
-import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import { Service } from '@deepseek-ai/cordis'
 import RemoteSshManager from '../src/routing/manager.ts'
 import { describe, expect, it } from 'vitest'
 
-class MemorySettings extends SettingsProvider {
-  private storedDocument: Record<string, unknown> = {}
-
-  get writable(): boolean { return true }
-
-  protected load(): Promise<Record<string, unknown>> {
-    return Promise.resolve(structuredClone(this.storedDocument))
+class MemorySettings extends Service {
+  static inject = []
+  private readonly entries = new Map<string, { section: Record<string, unknown>; revision: number }>()
+  constructor(ctx: Context) { super(ctx, 'settings') }
+  configure(): () => void { return () => {} }
+  describe(): Array<{ ns: string; revision: number }> {
+    return [...this.entries].map(([ns, entry]) => ({ ns, revision: entry.revision }))
   }
-
-  protected persist(namespace: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
-    this.storedDocument = { ...this.storedDocument, [namespace]: structuredClone(section) }
-    return Promise.resolve()
+  async replace(ns: string, section: Record<string, unknown>, expectedRevision?: number): Promise<void> {
+    const current = this.entries.get(ns) ?? { section: {}, revision: 0 }
+    if (expectedRevision !== undefined && expectedRevision !== current.revision) throw new Error('SETTINGS_CONFLICT')
+    this.entries.set(ns, { section: structuredClone(section), revision: current.revision + 1 })
+  }
+  async mutate(ns: string, ops: ReadonlyArray<{ op: 'set' | 'unset'; path: readonly string[] }>, expectedRevision?: number): Promise<void> {
+    const current = this.entries.get(ns) ?? { section: {}, revision: 0 }
+    if (expectedRevision !== undefined && expectedRevision !== current.revision) throw new Error('SETTINGS_CONFLICT')
+    const section = structuredClone(current.section)
+    for (const op of ops) {
+      const key = op.path[0]
+      if (key === undefined) continue
+      if (op.op === 'unset') delete section[key]
+    }
+    this.entries.set(ns, { section, revision: current.revision + 1 })
   }
 }
 

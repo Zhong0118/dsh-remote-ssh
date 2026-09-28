@@ -7,7 +7,7 @@ import { posix } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { ShellExecutor } from '@deepseek-ai/dsh-shell'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SettingsForms } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
 import z from '@deepseek-ai/schemastery'
@@ -118,7 +118,7 @@ export interface RemoteDirectoryListing {
   entries: RemoteDirectoryEntry[]
 }
 
-const SETTINGS_NAMESPACE = 'remote-ssh'
+const SETTINGS_NAMESPACE = 'remote-ssh-manager'
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
 const serverSchema: z<RemoteSshServer> = z.object({
@@ -152,21 +152,23 @@ declare module '@deepseek-ai/cordis' {
 export class RemoteSshManager extends Service {
   static inject = ['settings']
 
-  static Config: z<Config> = z.object({
+  static Config: z<any> = z.object({
     aliasRoot: z.string().default(resolve(process.env.DSH_HOME ?? resolve(process.env.USERPROFILE ?? '.', '.dsh'), 'remote-ssh', 'workspaces')),
-    sshConfigFile: z.string(),
-    servers: z.array(serverSchema).default([]),
-    workspaces: z.array(workspaceSchema).default([]),
-    openFileMode: z.union(['auto', 'vscode', 'cursor', 'windsurf', 'vscodium', 'custom', 'download'] as const).default('auto'),
-    openFileEditorPath: z.string(),
+    sshConfigFile: z.string().volatile(),
+    servers: z.array(serverSchema).default([]).volatile(),
+    workspaces: z.array(workspaceSchema).default([]).volatile(),
+    openFileMode: z.union(['auto', 'vscode', 'cursor', 'windsurf', 'vscodium', 'custom', 'download'] as const).default('auto').volatile(),
+    openFileEditorPath: z.string().volatile(),
     openFileDownloadMaxBytes: z.number().default(64 * 1024 * 1024),
     startupTimeoutMs: z.number().default(600_000),
     requestTimeoutMs: z.number().default(30_000),
   })
 
   private readonly entry: ResolvedConfig
+  private readonly liveConfig: Config | ResolvedConfig
   private current: ResolvedConfig
-  private settings: SettingsScope<Config> | undefined
+  private settings: SettingsForms | undefined
+  private settingsRevision = 0
   private readonly routes = new Map<string, RemoteWorkspaceRoute>()
   private readonly routeByWorkspaceId = new Map<string, RemoteWorkspaceRoute>()
   private readonly remoteAliases = new Set<string>()
@@ -184,7 +186,8 @@ export class RemoteSshManager extends Service {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'remoteSshManager')
-    this.entry = config as ResolvedConfig
+    this.liveConfig = config
+    this.entry = resolvedConfig(config)
     this.current = this.entry
     this.validate(this.entry)
     this.initialRefresh = this.queueRefresh(this.entry)
@@ -197,17 +200,15 @@ export class RemoteSshManager extends Service {
       }, 'Remote SSH workspace registry attachment')
     })
 
-    const scope = ctx.settings.register(SETTINGS_NAMESPACE, RemoteSshManager.Config, {
-      base: this.entry,
-      applies: 'live',
-      validate: value => { this.validate(value as ResolvedConfig) },
+    this.settings = ctx.settings
+    ctx.settings.configure({ auto: false }, ctx.fiber)
+    const onVolatileUpdate = ctx.on('loader/volatile-update', () => {
+      const next = resolvedConfig(this.liveConfig)
+      void this.queueRefresh(next).catch(error => { this.ctx.logger.error(error) })
     })
-    this.settings = scope
-    void this.queueRefresh(scope.get() as ResolvedConfig)
-    const unwatch = scope.watch(next => this.queueRefresh(next as ResolvedConfig))
     ctx.effect(() => () => {
-      unwatch()
-      if (this.settings === scope) this.settings = undefined
+      onVolatileUpdate()
+      if (this.settings === ctx.settings) this.settings = undefined
     }, 'Remote SSH settings watch')
 
     ctx.effect(() => async () => {
@@ -683,7 +684,26 @@ export class RemoteSshManager extends Service {
 
   private async replaceSettings(next: ResolvedConfig): Promise<void> {
     if (this.settings === undefined) throw new Error('dsh-remote-ssh: settings service is unavailable')
-    await this.settings.replace(next)
+    const previous = this.current
+    const editable = {
+      servers: next.servers,
+      workspaces: next.workspaces,
+      sshConfigFile: next.sshConfigFile ?? '',
+      openFileMode: next.openFileMode,
+      openFileEditorPath: next.openFileEditorPath ?? '',
+    }
+    const descriptor = this.settings.describe().find(entry => entry.ns === SETTINGS_NAMESPACE)
+    this.settingsRevision = descriptor?.revision ?? this.settingsRevision
+    await this.settings.replace(SETTINGS_NAMESPACE, editable, this.settingsRevision)
+    this.settingsRevision += 1
+    const clears = (['sshConfigFile', 'openFileEditorPath'] as const)
+      .filter(key => previous[key] !== undefined && next[key] === undefined)
+      .map(path => ({ op: 'unset' as const, path: [path] }))
+    if (clears.length > 0) {
+      await this.settings.mutate(SETTINGS_NAMESPACE, clears, this.settingsRevision)
+      this.settingsRevision += 1
+    }
+    await this.queueRefresh(next)
     await this.refreshTail
   }
 
@@ -714,6 +734,27 @@ export class RemoteSshManager extends Service {
       aliases.add(alias)
       workspaceIds.add(workspace.id)
     }
+  }
+}
+
+function resolvedConfig(config: Config | ResolvedConfig): ResolvedConfig {
+  const value = config as Record<string, unknown>
+  const read = <T>(key: string): T => {
+    const candidate = value[key] as { get?: () => T } | T | undefined
+    return candidate !== null && typeof candidate === 'object' && typeof (candidate as { get?: unknown }).get === 'function'
+      ? (candidate as { get: () => T }).get()
+      : candidate as T
+  }
+  return {
+    aliasRoot: read<string>('aliasRoot'),
+    ...(read<string | undefined>('sshConfigFile') === undefined || read<string>('sshConfigFile') === '' ? {} : { sshConfigFile: read<string>('sshConfigFile') }),
+    servers: structuredClone(read<RemoteSshServer[]>('servers') ?? []),
+    workspaces: structuredClone(read<RemoteSshWorkspace[]>('workspaces') ?? []),
+    openFileMode: read<RemoteOpenFileMode>('openFileMode'),
+    ...(read<string | undefined>('openFileEditorPath') === undefined ? {} : { openFileEditorPath: read<string>('openFileEditorPath') }),
+    openFileDownloadMaxBytes: read<number>('openFileDownloadMaxBytes'),
+    startupTimeoutMs: read<number>('startupTimeoutMs'),
+    requestTimeoutMs: read<number>('requestTimeoutMs'),
   }
 }
 

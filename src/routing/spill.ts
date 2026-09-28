@@ -45,13 +45,13 @@ export async function saveRemoteSpill(
   ])
   const directory = remoteSpillDirectory(remote.runtimeRoot, String(input.owner.sessionId))
   const path = posix.join(directory, `${randomBytes(12).toString('hex')}-${safeSuggestedName(input.suggestedName)}`)
-  const prepared = await shell.run(shell.resolve({
+  const prepared = await (await shell.execute(shell.resolve({
     command: `umask 077 && mkdir -p -m 700 -- ${quotePosix(directory)}`,
     workdir: route.aliasPath,
     timeoutMs: 30_000,
     stdoutMaxBytes: 16 * 1024,
     sandboxPolicy: { mode: 'danger-full-access', workspaceRoot: route.aliasPath },
-  }))
+  }))).result()
   if (prepared.exitCode !== 0) {
     throw new Error(`dsh-remote-ssh: failed to prepare remote spill directory: ${prepared.stderr.text.slice(-2048)}`)
   }

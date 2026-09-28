@@ -71,9 +71,11 @@ export function apply(ctx: Context): void {
       }, RemoteWorkspaceFlow)
     }))
 
-  ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-    name: 'settings.plugin.item',
-    key: 'remote-ssh',
+  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+    name: 'settings.plugins.tab',
+    id: 'remote-ssh',
+    order: 16,
+    label: 'Remote SSH',
     locale: namespace,
     inject: () => ({ t }),
   }, RemoteSshPluginCard))

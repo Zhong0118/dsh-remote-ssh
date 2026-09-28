@@ -67,7 +67,7 @@ export function RemoteSshPluginCard({ t: optionalT }: LocalizedProps): ReactElem
     }
   }
 
-  return <li style={{ listStyle: 'none', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, overflow: 'hidden' }}>
+  return <div style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, overflow: 'hidden' }}>
     <button type="button" style={{ ...button, width: '100%', border: 0, borderRadius: 0, padding: 14, textAlign: 'left' }} aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
       <b>Remote SSH</b><span style={{ display: 'block', ...dim }}>{t('pluginSummary')}</span>
     </button>
@@ -100,5 +100,5 @@ export function RemoteSshPluginCard({ t: optionalT }: LocalizedProps): ReactElem
         <button style={primary} disabled={!dirty || invalid || invalidEditor || loading || saving} onClick={() => { void save() }}>{saving ? t('saving') : t('save')}</button>
       </div>
     </div> : null}
-  </li>
+  </div>
 }

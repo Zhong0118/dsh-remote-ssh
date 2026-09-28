@@ -93,10 +93,12 @@ declare module '@deepseek-ai/cordis' {
  */
 declare class RemoteSshManager extends Service {
   static inject: string[];
-  static Config: z<Config>;
+  static Config: z<any>;
   private readonly entry;
+  private readonly liveConfig;
   private current;
   private settings;
+  private settingsRevision;
   private readonly routes;
   private readonly routeByWorkspaceId;
   private readonly remoteAliases;

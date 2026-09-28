@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { createRequire } from 'node:module'
 import { WorkspacePathMapper } from '../src/transport/runtime.ts'
 import type { RemoteWorkspaceRoute } from '../src/routing/manager.ts'
 import { injectSearchPathHook, remoteAbsolutePath } from '../src/transport/search.ts'
@@ -13,6 +15,13 @@ const route: RemoteWorkspaceRoute = {
 }
 
 describe('remote search parser hook', () => {
+  it('recognizes the stock parser in the installed DSH search package', () => {
+    const require = createRequire(import.meta.url)
+    const path = require.resolve('@deepseek-ai/dsh-tool-fs-search')
+    const source = readFileSync(path, 'utf8')
+    expect(injectSearchPathHook(source)).toContain('dsh-remote-ssh.search-path-parser')
+  })
+
   it('injects only the parser entry and is idempotent', () => {
     const source = 'function toWorkdirRelative(path, workdir) {\n\treturn path;\n}'
     const injected = injectSearchPathHook(source)

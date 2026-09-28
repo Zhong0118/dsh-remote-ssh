@@ -30,7 +30,8 @@ describe('transparent spill store', () => {
       stdout: { text: '', truncated: false },
       stderr: { text: '', truncated: false },
     }))
-    const shell = { resolve: vi.fn((spec: unknown) => spec), run }
+    const execute = vi.fn(async () => ({ result: run }))
+    const shell = { resolve: vi.fn((spec: unknown) => spec), execute }
     const manager = {
       workspaceContext: vi.fn(async () => ({
         remote: { runtimeRoot: '/runtime/client', getClient: async () => ({ resourceWrite }) },
@@ -46,6 +47,7 @@ describe('transparent spill store', () => {
 
     const saved = await saveRemoteSpill(manager, route, input)
 
+    expect(execute).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledOnce()
     expect(resourceWrite).toHaveBeenCalledWith(expect.objectContaining({
       uri: expect.stringMatching(/^file:\/\/\/runtime\/client\/spills\/session-[0-9a-f]{16}\/[0-9a-f]{24}-job_output\.txt$/),

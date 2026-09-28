@@ -60,7 +60,7 @@ Remote file links use the first supported VS Code-compatible editor by default. 
 The remote host needs:
 
 - a POSIX shell and non-interactive OpenSSH access;
-- `bash`, `base64`, and `mkfifo` for shell and subprocess execution;
+- `bash`, `base64`, `dd`, and `mkfifo` for shell, byte-range filesystem reads, and subprocess execution;
 - `rg` for glob and grep tools;
 - a VS Code Agent Host supplied by the official VS Code CLI or an existing VS Code Server installation.
 
@@ -99,7 +99,7 @@ Passwords, MFA prompts, and first-use host-key confirmation are not bridged into
 
 ## Compatibility
 
-- DeepSeek Harness `0.1.2-rc.1` package surface;
+- DeepSeek Harness `0.1.7-rc.2` package surface;
 - POSIX/Linux SSH hosts;
 - `@microsoft/agent-host-protocol` 0.9 client (handshake also offers 0.8–0.5.1);
 - system OpenSSH configuration, SSH Agent, `known_hosts`, and `ProxyJump`.

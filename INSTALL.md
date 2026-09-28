@@ -105,10 +105,10 @@ If it fails because of a password, MFA, host-key prompt, or missing key, stop an
 After non-interactive SSH succeeds, perform a read-only check:
 
 ```sh
-ssh -T <host-alias> 'printf "host=%s\n" "$(hostname)"; for cmd in bash base64 mkfifo rg code; do if command -v "$cmd" >/dev/null 2>&1; then printf "%s=1\n" "$cmd"; else printf "%s=0\n" "$cmd"; fi; done; find "$HOME/.vscode-server/cli/servers" -type f -path "*/server/bin/code-server" -perm -u+x -print -quit 2>/dev/null || true'
+ssh -T <host-alias> 'printf "host=%s\n" "$(hostname)"; for cmd in bash base64 dd mkfifo rg code; do if command -v "$cmd" >/dev/null 2>&1; then printf "%s=1\n" "$cmd"; else printf "%s=0\n" "$cmd"; fi; done; find "$HOME/.vscode-server/cli/servers" -type f -path "*/server/bin/code-server" -perm -u+x -print -quit 2>/dev/null || true'
 ```
 
-Require `bash`, `base64`, and `mkfifo`. `rg` is required for glob and grep. Agent Host requires either:
+Require `bash`, `base64`, `dd`, and `mkfifo`. `rg` is required for glob and grep. Agent Host requires either:
 
 - `code agent host` from an official VS Code CLI;
 - `~/.dsh-remote-ssh/cli/bin/code`; or

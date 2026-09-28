@@ -47,7 +47,7 @@ export function apply(ctx: Context): void {
     }
   }
 
-  ctx.on('agent/created', ({ agent }) => { bind(agent) })
+  ctx.on('agent/created', ({ agent }) => { bind(agent); return undefined })
 
   // Tool registration emits this event synchronously. Only pending Agents
   // are retried, and bind removes an Agent before installing scoped effects,

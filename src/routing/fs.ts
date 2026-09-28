@@ -96,6 +96,11 @@ export class TransparentFileSystem extends FileSystem {
     return backend.fs.readBytes(backend.target, signal, maxBytes)
   }
 
+  override async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
+    const backend = await this.backend(target)
+    return backend.fs.readByteRange(backend.target, range, signal)
+  }
+
   override async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
     const decoded = decodeTarget(target)
     if (decoded === undefined) return this.local.listDir(target, signal)

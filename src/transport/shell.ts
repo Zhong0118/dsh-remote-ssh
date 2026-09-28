@@ -228,9 +228,13 @@ async function executeTerminal(
     const connection = await prepare(remote.getClient())
     if (connection.kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
     client = connection.value
-    if ((await prepare(client.resourceWrite({ uri: commandUri, data: spec.command, encoding: UTF8, contentType: 'text/x-shellscript' }))).kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
+    const commandWrite = client.resourceWrite({ uri: commandUri, data: spec.command, encoding: UTF8, contentType: 'text/x-shellscript' })
+    void commandWrite.then(() => { if (stopCause !== undefined) void client?.resourceDelete({ uri: commandUri }).catch(() => {}) }).catch(() => {})
+    if ((await prepare(commandWrite)).kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
     if (spec.stdin !== undefined) {
-      if ((await prepare(client.resourceWrite({ uri: stdinUri, data: Buffer.from(spec.stdin).toString('base64'), encoding: 'base64' as ContentEncoding }))).kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
+      const stdinWrite = client.resourceWrite({ uri: stdinUri, data: Buffer.from(spec.stdin).toString('base64'), encoding: 'base64' as ContentEncoding })
+      void stdinWrite.then(() => { if (stopCause !== undefined) void client?.resourceDelete({ uri: stdinUri }).catch(() => {}) }).catch(() => {})
+      if ((await prepare(stdinWrite)).kind === 'timeout') return { exitCode: null, signal: null, timedOut: true, aborted: false, output }
       stdinCreated = true
     }
     const claim = { kind: 'client', clientId: remote.clientId } as TerminalClientClaim
@@ -338,10 +342,15 @@ async function executeTerminal(
   } finally {
     if (timer !== undefined) clearTimeout(timer)
     if (abortListener !== undefined) spec.signal?.removeEventListener('abort', abortListener)
-    await subscription?.close().catch(() => {})
-    if (terminalCreated) await client?.request('disposeTerminal', { channel: terminalUri }).catch(() => {})
-    await client?.resourceDelete({ uri: commandUri }).catch(() => {})
-    if (stdinCreated) await client?.resourceDelete({ uri: stdinUri }).catch(() => {})
+    const cleanup = Promise.allSettled([
+      subscription?.close(),
+      terminalCreated && client ? client.request('disposeTerminal', { channel: terminalUri }) : undefined,
+      client?.resourceDelete({ uri: commandUri }),
+      stdinCreated ? client?.resourceDelete({ uri: stdinUri }) : undefined,
+    ])
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([cleanup, new Promise<void>(resolve => { cleanupTimer = setTimeout(resolve, 100) })])
+    if (cleanupTimer !== undefined) clearTimeout(cleanupTimer)
   }
 }
 

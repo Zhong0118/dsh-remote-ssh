@@ -25,12 +25,13 @@ class FakeSubscription implements AsyncIterableIterator<SubscriptionEvent> {
 class FakeTerminalAhp {
   readonly subscription = new FakeSubscription()
   readonly writes: string[] = []
+  readonly deletes: string[] = []
   disposed = false
   autoComplete = true
   lastToken = ''
 
   async resourceWrite({ uri }: { uri: string }): Promise<void> { this.writes.push(uri) }
-  async resourceDelete() { return {} }
+  async resourceDelete({ uri }: { uri: string }) { this.deletes.push(uri); return {} }
   async request(method: string) {
     if (method === 'disposeTerminal') this.disposed = true
     return {}
@@ -122,6 +123,28 @@ describe('TransparentShellExecutor local execution', () => {
 })
 
 describe('RemoteSshShellExecutor', () => {
+  it('settles timeout despite stuck AHP cleanup and retries deletion after a late command write', async () => {
+    const { ctx, client, local } = await setup()
+    let finishWrite!: () => void
+    const pendingWrite = new Promise<void>(resolveWrite => { finishWrite = resolveWrite })
+    let writeStarted!: () => void
+    const started = new Promise<void>(resolveStarted => { writeStarted = resolveStarted })
+    client.resourceWrite = async ({ uri }: { uri: string }) => { client.writes.push(uri); writeStarted(); await pendingWrite }
+    client.resourceDelete = async ({ uri }: { uri: string }) => {
+      client.deletes.push(uri)
+      if (client.deletes.length === 1) await new Promise<void>(() => {})
+      return {}
+    }
+    const executionPromise = ctx.shell.execute(ctx.shell.resolve({ command: 'true', workdir: local, timeoutMs: 10 }))
+    await started
+    const execution = await executionPromise
+    await execution.done
+    expect(await execution.result()).toMatchObject({ timedOut: true, exitCode: null })
+    finishWrite()
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 0))
+    expect(client.deletes.filter(uri => uri === client.writes[0])).toHaveLength(2)
+  })
+
   it('projects AHP terminal command actions into a ShellRunResult', async () => {
     const { ctx, client, local } = await setup()
     const execution = await ctx.shell.execute(ctx.shell.resolve({

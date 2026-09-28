@@ -684,7 +684,6 @@ export class RemoteSshManager extends Service {
 
   private async replaceSettings(next: ResolvedConfig): Promise<void> {
     if (this.settings === undefined) throw new Error('dsh-remote-ssh: settings service is unavailable')
-    const previous = this.current
     const editable = {
       servers: next.servers,
       workspaces: next.workspaces,
@@ -696,13 +695,6 @@ export class RemoteSshManager extends Service {
     this.settingsRevision = descriptor?.revision ?? this.settingsRevision
     await this.settings.replace(SETTINGS_NAMESPACE, editable, this.settingsRevision)
     this.settingsRevision += 1
-    const clears = (['sshConfigFile', 'openFileEditorPath'] as const)
-      .filter(key => previous[key] !== undefined && next[key] === undefined)
-      .map(path => ({ op: 'unset' as const, path: [path] }))
-    if (clears.length > 0) {
-      await this.settings.mutate(SETTINGS_NAMESPACE, clears, this.settingsRevision)
-      this.settingsRevision += 1
-    }
     await this.queueRefresh(next)
     await this.refreshTail
   }
